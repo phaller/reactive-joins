@@ -33,6 +33,7 @@ object MyBuild extends Build {
   lazy val core: Project = Project(
     "core",
     file("core"),
-    settings = buildSettings
+    settings = buildSettings ++ Seq(
+      libraryDependencies += ("com.netflix.rxjava" % "rxjava-scala" % "0.18.3"))
   ) dependsOn(macros)
 }
