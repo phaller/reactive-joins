@@ -9,7 +9,8 @@ object BuildSettings {
     crossScalaVersions := Seq("2.11.0"),
     resolvers += Resolver.sonatypeRepo("snapshots"),
     resolvers += Resolver.sonatypeRepo("releases"),
-    scalacOptions ++= Seq()
+    scalacOptions ++= Seq("")
+//    scalacOptions ++= Seq("-Ymacro-debug-lite")
   )
 }
 
@@ -27,7 +28,8 @@ object MyBuild extends Build {
     "macros",
     file("macros"),
     settings = buildSettings ++ Seq(
-      libraryDependencies <+= (scalaVersion)("org.scala-lang" % "scala-reflect" % _))
+      libraryDependencies ++= Seq("org.scala-lang" % "scala-reflect" % "2.11.0",
+        "com.netflix.rxjava" % "rxjava-scala" % "0.18.3"))
   )
 
   lazy val core: Project = Project(

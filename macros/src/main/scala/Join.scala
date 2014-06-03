@@ -1,16 +1,17 @@
 package scala.async
 
-import scala.concurrent.{Future}
 import language.experimental.macros
 import scala.reflect.macros.blackbox
 import scala.language.implicitConversions
+import rx.Observable
 
 object Join {
-  class Pattern[A](f: Future[A]) {
+  /* Code related for enabling our syntax in partial functions */
+  class Pattern[A](val observable: Observable[A]) {
     def unapply(x: Any): Option[A] = ???
   }
   object Pattern {
-    def apply[A](f: Future[A]) = new Pattern(f)
+    def apply[A](o: Observable[A]) = new Pattern(o)
   }
   object && {
     def unapply(obj: Any): Option[(Pattern[_] , Pattern[_])] = ???
@@ -18,8 +19,16 @@ object Join {
   object ||  {
     def unapply(obj: Any): Option[(Pattern[_], Pattern[_])] = ???
   }
-  implicit class FutureJoinOps[A](f: Future[A]) {
-    def p: Pattern[A] = Pattern(f)
+  implicit class ObservableJoinOps[A](o: Observable[A]) {
+    def p: Pattern[A] = Pattern(o)
+  }
+  /* The macros implementing the transform */
+
+  def async[A](body: =>Any): Observable[A] = macro asyncImpl[A]
+
+  def asyncImpl[A: c.WeakTypeTag](c: blackbox.Context)(body: c.Tree): c.Tree = {
+    import c.universe._
+    q""
   }
 
   def join[A](pf: PartialFunction[Pattern[_], A]): A = macro joinImpl[A]
@@ -34,10 +43,6 @@ object Join {
         Functionality:
         3. Transform
     */
-
-    /* How to get the type: */
-    val tpe = weakTypeOf[A]
-    println(pf)
     q""
   }
 }
