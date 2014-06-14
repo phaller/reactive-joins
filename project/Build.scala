@@ -9,8 +9,10 @@ object BuildSettings {
     crossScalaVersions := Seq("2.11.0"),
     resolvers += Resolver.sonatypeRepo("snapshots"),
     resolvers += Resolver.sonatypeRepo("releases"),
-    scalacOptions ++= Seq("")
+    // scalacOptions ++= Seq("")
+    scalacOptions ++= Seq("-unchecked", "-deprecation")
 //    scalacOptions ++= Seq("-Ymacro-debug-lite")
+//    scalacOptions ++= Seq("-Ybrowse:typer")
   )
 }
 

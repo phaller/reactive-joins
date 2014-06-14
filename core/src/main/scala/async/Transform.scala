@@ -9,7 +9,7 @@ import scala.concurrent.{Awaitable, Await, Lock}
 *   val result = join {
 *     case obs1(x) & obs2(y) => x + y
 *     case obs1(x) & obs3(y) => x - y
-*     case obs4(x) => x + 1
+*     case obs4(4) => println ("got 4!"); 4
 *   }
 *   println(result)
 * }
@@ -52,7 +52,9 @@ object Transform extends App {
   val pattern1_continuation = (v1: Long, v2: Long) => v1 + v2
   val pattern2_continuation = (v1: Long, v2: Long) => v1 - v2
 
-  val pattern3_continuation = (v1: Long) => v1
+  val pattern3_continuation = () => { 4 }
+
+  val pattern3_condition = (v1: Long) => v1 == 4
 
   val continuation: (Long => Unit) = result => { println(s"Result: $result") }
 
@@ -153,9 +155,34 @@ object Transform extends App {
     }
   )
 
+  obs4.subscribe(
+    next => {
+      stateLock.acquire()
+      val possibleState = state.set(obs4_id)
+      // case Obs4(4)
+      if (possibleState.matches(pattern3)) {
+        if (pattern3_condition(next)) {
+          val result = pattern3_continuation()
+          stateLock.release()
+          continuation(result)
+        } else {
+          stateLock.release()
+        }
+      } else {
+        channels.get(obs4_id) match {
+          case Some(q) => q.enqueue(next)
+          case None => channels += (obs4_id -> mutable.Queue(next))
+        }
+        state = possibleState
+        stateLock.release()
+      }
+    }
+  )
+
   def printState() {
-    println(s"State: $state\n Queues: ${channels.map({ case (k, v) => v.toString()}).mkString(" ") }")
+    println(s"State: $state\n Queues: ${channels.map({ case (k, v) => v.toString()}).mkString(" ")}")
   }
+
   printState()
   obs1.onNext(1L)
   printState()
@@ -170,6 +197,10 @@ object Transform extends App {
   obs3.onNext(4L)
   printState()
   obs1.onNext(4L)
+  printState()
+  obs4.onNext(4L)
+  printState()
+  obs4.onNext(2L)
   printState()
 }
 
