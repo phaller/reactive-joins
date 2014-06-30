@@ -1,8 +1,9 @@
-import rx.lang.scala.{Subject, Observable, Subscription}
+import rx.lang.scala.{ Subject, Observable, Subscription }
 
 import concurrent.duration._
 import scala.collection.mutable
-import scala.concurrent.{Awaitable, Await, Lock}
+import scala.concurrent.{ Awaitable, Await, Lock }
+import scala.util.control.Breaks._
 
 /* Example source of transform:
 * async {
@@ -62,7 +63,7 @@ object Transform extends App {
   val stateLock = new Lock()
 
   def stateOfQueues(channels: Map[Int, mutable.Queue[_]]): BitField = {
-    new BitField(channels.foldLeft(0) { case (acc, (id, queue)) => if (!queue.isEmpty) acc | id else acc})
+    new BitField(channels.foldLeft(0) { case (acc, (id, queue)) => if (!queue.isEmpty) acc | id else acc })
   }
 
   def dequeue(obs_id: Int): Long = channels.get(obs_id) match {
@@ -77,22 +78,26 @@ object Transform extends App {
       // Check all patterns for a match
 
       // Obs 1 | Obs 2
-      if (possibleState.matches(pattern1)) {
-        // Dequeue the required messages
-        val obs2_value = dequeue(obs2_id)
-        // Adjust the state to the queue contents
-        state = stateOfQueues(channels)
-        val result = pattern1_continuation(next, obs2_value)
-        stateLock.release()
-        continuation(result)
-      // Obs1 | Obs 3
-      } else if (possibleState.matches(pattern2)) {
-        val obs3_value = dequeue(obs3_id)
-        state = stateOfQueues(channels)
-        stateLock.release()
-        val result = pattern2_continuation(next, obs3_value)
-        continuation(result)
-      } else {
+      breakable {
+        if (possibleState.matches(pattern1)) {
+          // Dequeue the required messages
+          val obs2_value = dequeue(obs2_id)
+          // Adjust the state to the queue contents
+          state = stateOfQueues(channels)
+          val result = pattern1_continuation(next, obs2_value)
+          stateLock.release()
+          continuation(result)
+          break
+        }
+        // Obs1 | Obs 3
+        if (possibleState.matches(pattern2)) {
+          val obs3_value = dequeue(obs3_id)
+          state = stateOfQueues(channels)
+          stateLock.release()
+          val result = pattern2_continuation(next, obs3_value)
+          continuation(result)
+          break
+        }
         // TODO: This can be further inlined by chosing the correct queue
         channels.get(obs1_id) match {
           case Some(q) => q.enqueue(next)
@@ -101,8 +106,7 @@ object Transform extends App {
         state = possibleState
         stateLock.release()
       }
-    }
-  )
+    })
 
   obs2.subscribe(
     next => {
@@ -110,15 +114,17 @@ object Transform extends App {
       val possibleState = state.set(obs2_id)
       // Check all patterns for a match
       // Obs 1 | Obs 2
-      if (possibleState.matches(pattern1)) {
-        // Dequeue the required messages
-        val obs1_value = dequeue(obs1_id)
-        // Adjust the state to the queue contents
-        state = stateOfQueues(channels)
-        val result = pattern1_continuation(obs1_value, next)
-        stateLock.release()
-        continuation(result)
-      } else {
+      breakable {
+        if (possibleState.matches(pattern1)) {
+          // Dequeue the required messages
+          val obs1_value = dequeue(obs1_id)
+          // Adjust the state to the queue contents
+          state = stateOfQueues(channels)
+          val result = pattern1_continuation(obs1_value, next)
+          stateLock.release()
+          continuation(result)
+          break
+        }
         channels.get(obs2_id) match {
           case Some(q) => q.enqueue(next)
           case None => channels += (obs2_id -> mutable.Queue(next))
@@ -126,8 +132,7 @@ object Transform extends App {
         state = possibleState
         stateLock.release()
       }
-    }
-  )
+    })
 
   obs3.subscribe(
     next => {
@@ -136,39 +141,43 @@ object Transform extends App {
       // Check all patterns for a match
 
       // Obs 1 | Obs 3
-      if (possibleState.matches(pattern2)) {
-        // Dequeue the required messages
-        val obs1_value = dequeue(obs1_id)
-        // Adjust the state to the queue contents
-        state = stateOfQueues(channels)
-        val result = pattern1_continuation(obs1_value, next)
-        stateLock.release()
-        continuation(result)
-      } else {
+      breakable {
+        if (possibleState.matches(pattern2)) {
+          // Dequeue the required messages
+          val obs1_value = dequeue(obs1_id)
+          // Adjust the state to the queue contents
+          state = stateOfQueues(channels)
+          val result = pattern1_continuation(obs1_value, next)
+          stateLock.release()
+          continuation(result)
+          break
+        }
         channels.get(obs3_id) match {
           case Some(q) => q.enqueue(next)
-          case None => channels += (obs3_id -> mutable.Queue(next))
+          case None =>
+            channels += (obs3_id -> mutable.Queue(next))
         }
         state = possibleState
         stateLock.release()
       }
-    }
-  )
+    })
 
   obs4.subscribe(
     next => {
       stateLock.acquire()
       val possibleState = state.set(obs4_id)
       // case Obs4(4)
-      if (possibleState.matches(pattern3)) {
-        if (pattern3_condition(next)) {
-          val result = pattern3_continuation()
-          stateLock.release()
-          continuation(result)
-        } else {
-          stateLock.release()
+      breakable {
+        if (possibleState.matches(pattern3)) {
+          if (pattern3_condition(next)) {
+            val result = pattern3_continuation()
+            stateLock.release()
+            continuation(result)
+          } else {
+            stateLock.release()
+          }
+          break
         }
-      } else {
         channels.get(obs4_id) match {
           case Some(q) => q.enqueue(next)
           case None => channels += (obs4_id -> mutable.Queue(next))
@@ -176,11 +185,10 @@ object Transform extends App {
         state = possibleState
         stateLock.release()
       }
-    }
-  )
+    })
 
   def printState() {
-    println(s"State: $state\n Queues: ${channels.map({ case (k, v) => v.toString()}).mkString(" ")}")
+    println(s"State: $state\n Queues: ${channels.map({ case (k, v) => v.toString() }).mkString(" ")}")
   }
 
   printState()
@@ -203,6 +211,5 @@ object Transform extends App {
   obs4.onNext(2L)
   printState()
 }
-
 
 // TODO: When, and how to unsubscribe?
