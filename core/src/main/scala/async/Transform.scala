@@ -186,7 +186,7 @@ object Transform extends App {
         stateLock.release()
       }
     })
-
+  
   def printState() {
     println(s"State: $state\n Queues: ${channels.map({ case (k, v) => v.toString() }).mkString(" ")}")
   }
