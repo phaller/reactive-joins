@@ -54,7 +54,6 @@ object Join {
     val bodies = cases map { c => c.body }
     val rawPatternTrees = cases map { c => c.pat }
 
-    // TODO: This probably stinks...
     def getPatternObjects(t: Tree): List[Tree] = {
       var patternObjects = List[Tree]()
       def recPat(t: Tree): Unit = t match {
@@ -97,24 +96,19 @@ object Join {
       .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) }
       .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) }
 
-    val tpe = weakTypeOf[A]
-
     val stateVar = TermName(c.freshName("state"))
     val stateLockVal = TermName(c.freshName("stateLock"))
-
-    // TODO: be more functional somehow?
-    // TODO: lock-handling is a nasty business...
-    // TODO: what does every symbol have? Maybe make it *one* map.
-    // TODO: code clean up, somehow.
 
     val symbolstoQueues = symbolsToIds.map {
       case (sym, id) => sym -> TermName(c.freshName(s"obs${id}_queue"))
     }
 
-    // TODO: Replace Int here with the observable type
+    // TODO: move obsSym.typeSignature.asInstanceOf[TypeRefApi].args.head
+    // into the a class "PatternObject"
     val queueDeclarations = symbolstoQueues.map { case (sym, name) =>
+          val obsTpe = sym.typeSignature.asInstanceOf[TypeRefApi].args.head
           q"""
-            val $name = mutable.Queue[Int]()
+            val $name = mutable.Queue[$obsTpe]()
           """
       }
 
@@ -157,14 +151,15 @@ object Join {
         }
       }
     }
-    // TODO: how to get the types of the observables?
-    // TODO: Fix the wrong $tpe with the actual observable type
     val subscriptions = symbolsToTrees.map {
       case (obsSym, tree) => {
         val possibleStateVal = TermName(c.freshName("possibleStateVal"))
+        // TODO: Checks - to ensure we have valid observables
+        // For example just a single type argument.
+        val obsTpe = obsSym.typeSignature.asInstanceOf[TypeRefApi].args.head
         q"""
-        $tree.observable.subscribe { new _root_.rx.functions.Action1[$tpe] {
-            def call(next: $tpe) = {
+        $tree.observable.subscribe { new _root_.rx.functions.Action1[$obsTpe] {
+            def call(next: $obsTpe) = {
               $stateLockVal.acquire()
               val $possibleStateVal = $stateVar | ${symbolsToIds.get(obsSym).get}
               breakable {
@@ -181,7 +176,6 @@ object Join {
       """
       }
     }
-    // TODO: Maybe find a better way than breaks? if-else generation?
     val out = q"""
       import _root_.scala.util.control.Breaks._
       import _root_.scala.collection.mutable
