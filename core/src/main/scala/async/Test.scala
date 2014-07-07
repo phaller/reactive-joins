@@ -20,7 +20,7 @@ object Test extends App {
   /* Coordinate observables with a join pattern! */
   val obs = join[Int] {
     case o1(x) && o2(y) && o3(z) => x + 1 //+ y + z
-    case o1(x) && o2(z) && o4(x) => x
+    case o1(x) && o2(z) && o4(y) => x
   }
   
   println(obs)

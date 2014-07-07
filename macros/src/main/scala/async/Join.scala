@@ -39,6 +39,17 @@ object Join {
     q""
   }
 
+  // case class ObservableInfo(id: Int,
+  //                           patterns: List[PatternInfo],
+  //                           queue: Queue
+  //                           messageType: Type)
+
+  // case class PatternInfo(pattern: Tree, 
+  //                        body: Tree,
+  //                        observables: List[ObservableInfo],
+  //                        id: Int
+  //                        conditions: Tree) 
+
   def join[A](pf: PartialFunction[Pattern[_], A]): A = macro joinImpl[A]
 
   def joinImpl[A: c.WeakTypeTag](c: blackbox.Context)(pf: c.Tree): c.Tree = {
@@ -51,9 +62,10 @@ object Join {
         3. Transform
     */
     val q"{ case ..$cases }" = pf
-    val bodies = cases map { c => c.body }
     val rawPatternTrees = cases map { c => c.pat }
 
+    // What is the problem? I need to get the body into that function down there.
+    // 
     def getPatternObjects(t: Tree): List[Tree] = {
       var patternObjects = List[Tree]()
       def recPat(t: Tree): Unit = t match {
@@ -70,11 +82,11 @@ object Join {
     }
 
     // Create a List of the trees representing the patterns
-    // Tree -> List[List[Tree]]
+    // Tree -> List[List[(Tree)]]
     val treePattern = rawPatternTrees.map { p => getPatternObjects(p) }
 
     // Look up the symbols of the observables involved in the patterns
-    // List[List[Tree]] -> List[List[(Symbol, Tree)]]
+    // List[List[Tree]] -> List[List[(Symbol, Tree, Tree)]]
     val symbolTreePattern = treePattern.map { ts => ts.map { t => (t.symbol, t) } }
 
     // Create a map from observable symbols to their tree representation
@@ -92,9 +104,11 @@ object Join {
 
     // Create for every pattern its id by "or"-ing together the ids of all involved observables
     // List[List[Symbol]] -> List[(List[Int], List[Symbol])] -> List[(Int, List[Symbol])]
+    // Regarding the zip: I hope the list combinators keep the order of the lists
     val patterns = symbolPattern
       .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) }
       .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) }
+      .zip(cases.map( c => c.body))
 
     val stateVar = TermName(c.freshName("state"))
     val stateLockVal = TermName(c.freshName("stateLock"))
@@ -103,19 +117,24 @@ object Join {
       case (sym, id) => sym -> TermName(c.freshName(s"obs${id}_queue"))
     }
 
+    def getFirstTypeArgument(sym: Symbol) = {
+      val NullaryMethodType(tpe) = sym.typeSignature
+      val TypeRef(_, _, obsTpe :: Nil) = tpe
+      obsTpe
+    }
     // TODO: move obsSym.typeSignature.asInstanceOf[TypeRefApi].args.head
     // into the a class "PatternObject"
     val queueDeclarations = symbolstoQueues.map { case (sym, name) =>
-          val obsTpe = sym.typeSignature.asInstanceOf[TypeRefApi].args.head
-          q"""
-            val $name = mutable.Queue[$obsTpe]()
-          """
-      }
+      val obsTpe = getFirstTypeArgument(sym)
+      q"""
+      val $name = mutable.Queue[$obsTpe]()
+      """
+    }
 
     def generatePatternChecks(obsSym: Symbol, possibleStateVal: TermName) = {
-      val ownPatterns = patterns.filter { case (pid, syms) => syms.exists { s => s == obsSym } }
+      val ownPatterns = patterns.filter { case ((_, syms), _) => syms.exists { s => s == obsSym } }
       ownPatterns.map {
-        case (pid, syms) => {
+        case ((pid, syms), body) => {
           val others = syms.filter { s => s != obsSym }
           val dequedMessageVals = others.map { sym => sym -> TermName(c.freshName("message")) }
           val dequedMessageValsDecl = dequedMessageVals.map { case (sym, name) => 
@@ -136,15 +155,19 @@ object Join {
           val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
           val ids = dequedMessageVals.map { case (_, name) => Ident(name).asInstanceOf[symtable.Tree]}
           val symsToReplace = dequedMessageVals.map { case (sym, _) => sym.asInstanceOf[symtable.Symbol]}
+          println(ids)
+          println(symsToReplace)
           val substituter = new symtable.TreeSubstituter(symsToReplace, ids)
           val transformedBody = substituter.transform(body.asInstanceOf[symtable.Tree])
-          val checkedTransformedBody = c.resetLocalAttrs(transformedBody.asInstanceOf[c.universe.Tree])
+          val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree])
+          println("body: " + showRaw(body))
+          println("transformed: " + showRaw(checkedTransformedBody))
           q"""
           if ((~$possibleStateVal & $pid) == 0) {
             ..${dequedMessageValsDecl.map(p => p._1)}
             ..${dequedMessageValsDecl.map(p => p._2)}
-            $checkedTransformedBody
             $stateLockVal.release()
+            $checkedTransformedBody
             break
           }
           """
@@ -156,7 +179,7 @@ object Join {
         val possibleStateVal = TermName(c.freshName("possibleStateVal"))
         // TODO: Checks - to ensure we have valid observables
         // For example just a single type argument.
-        val obsTpe = obsSym.typeSignature.asInstanceOf[TypeRefApi].args.head
+        val obsTpe = getFirstTypeArgument(obsSym) 
         q"""
         $tree.observable.subscribe { new _root_.rx.functions.Action1[$obsTpe] {
             def call(next: $obsTpe) = {
@@ -187,7 +210,7 @@ object Join {
       ..$subscriptions
       0
     """
-    println(out)
+    // println(out)
     out
   }
 }
