@@ -109,7 +109,7 @@ object Join {
       .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) } // get the ids of the observables
       .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) } // calculate pattern-id from the ids
       .zip { cases.map(c => c.body) } // add the body of the pattern to the pattern
-      .zip (symbolsToBindTree) // add the mapping from observables to their pattern-bind-variables
+      .zip(symbolsToBindTree) // add the mapping from observables to their pattern-bind-variables
       .map { case (((pid, obs), body), pVars) => pid -> (obs, body, pVars.toMap) } // tidy up a bit
 
     val stateVar = TermName(c.freshName("state"))
@@ -128,9 +128,7 @@ object Join {
     val queueDeclarations = symbolstoQueues.map {
       case (sym, name) =>
         val obsTpe = getFirstTypeArgument(sym)
-        q"""
-      val $name = mutable.Queue[$obsTpe]()
-      """
+        q"val $name = mutable.Queue[$obsTpe]()"
     }
 
     def generatePatternChecks(nextMessage: Tree, obsSym: Symbol, possibleStateVal: TermName) = {
@@ -146,10 +144,9 @@ object Join {
               // is not removed later when using ..$. The problem then is that the dequeued vars are
               // in the block scope and cannot be accessed outside of it.
               (q"val $name = $queue.dequeue()",
-                q"""
-            if ($queue.isEmpty) {
-              $stateVar = $stateVar & ~${symbolsToIds.get(sym).get}
-            }""")
+                q""" if ($queue.isEmpty) {
+                        $stateVar = $stateVar & ~${symbolsToIds.get(sym).get}
+                     }""")
           }
           // The following code uses the dequeued items to execute the pattern-body: we replace
           // all occurences of the pattern "bind variables" (like the "x" in "O(x)) with the symbol
@@ -157,23 +154,18 @@ object Join {
           // and thus have to cast all trees, and symbols in the internal types
           val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
           val ids = dequedMessageVals.map { case (_, name) => Ident(name).asInstanceOf[symtable.Tree] }
-          val symsToReplace = dequedMessageVals.map { case (sym, _) => pVars.get(sym).get.head.symbol.asInstanceOf[symtable.Symbol] } 
-          val nextMessageSymbol = nextMessage.symbol.asInstanceOf[symtable.Symbol]
-          val nextMessagePvar = pVars.get(obsSym).get.head.asInstanceOf[symtable.Tree]
-          // LOOK HERE PHILIPP: My goal is to add nextMessageSymbol to the symToReplace list,
-          // and nextMessageP(attern)var to the ids list.
-          println(nextMessageSymbol) // This prints Null
-          val dequeuedMessageSubstituter = new symtable.TreeSubstituter(symsToReplace, ids)
+          val symsToReplace = dequedMessageVals.map { case (sym, _) => pVars.get(sym).get.head.symbol.asInstanceOf[symtable.Symbol] }
+          val nextMessageTree = nextMessage.asInstanceOf[symtable.Tree]
+          val nextMessageSymbol = pVars.get(obsSym).get.head.symbol.asInstanceOf[symtable.Symbol]
+          val dequeuedMessageSubstituter = new symtable.TreeSubstituter(nextMessageSymbol :: symsToReplace, nextMessageTree :: ids)
           val transformedBody = dequeuedMessageSubstituter.transform(body.asInstanceOf[symtable.Tree])
           val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree])
-          println(showRaw(body, printIds = true))
-          println(showRaw(checkedTransformedBody, printIds = true))
-          println()
           q"""
           if ((~$possibleStateVal & $pid) == 0) {
             ..${dequedMessageValsDecl.map(p => p._1)}
             ..${dequedMessageValsDecl.map(p => p._2)}
             $stateLockVal.release()
+            println("calculated result: " + $checkedTransformedBody)
             break
           }
           """
@@ -194,7 +186,6 @@ object Join {
                 ..${generatePatternChecks(nextMessage, obsSym, possibleStateVal)}
                 // reaching here means no pattern has matched:
                 ${symbolstoQueues.get(obsSym).get}.enqueue($nextMessage)
-                println(${symbolstoQueues.get(obsSym).get})
                 $stateVar = $possibleStateVal
                 $stateLockVal.release()
               }
@@ -215,7 +206,7 @@ object Join {
       ..$subscriptions
       0
     """
-    // println(out)
+    println(out)
     out
   }
 }
