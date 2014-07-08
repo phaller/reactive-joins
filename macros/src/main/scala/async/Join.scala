@@ -40,15 +40,19 @@ object Join {
   }
 
   // case class ObservableInfo(id: Int,
+  //                           symbol: Symbol
   //                           patterns: List[PatternInfo],
   //                           queue: Queue
-  //                           messageType: Type)
-
+  //                           messageType: Type,
+  //                           dequeuedMessage: messageType,
+  //                           )  
+  //
   // case class PatternInfo(pattern: Tree, 
   //                        body: Tree,
   //                        observables: List[ObservableInfo],
+  //                        patternVariables: Map[Symbol, Tree]
   //                        id: Int
-  //                        conditions: Tree) 
+  //                        condition: Tree)   
 
   def join[A](pf: PartialFunction[Pattern[_], A]): A = macro joinImpl[A]
 
@@ -58,20 +62,19 @@ object Join {
         Analysis:
         1. Dead-code elimination (-> How to throw errors?)
         2. Determinism check
+        3. Disallow all pattern-matching features which are not supported, like "|"
         Functionality:
-        3. Transform
+        Transform
     */
     val q"{ case ..$cases }" = pf
     val rawPatternTrees = cases map { c => c.pat }
 
-    // What is the problem? I need to get the body into that function down there.
-    // 
-    def getPatternObjects(t: Tree): List[Tree] = {
-      var patternObjects = List[Tree]()
+    def getPatternObjects(t: Tree): List[(Tree, List[Tree])] = {
+      var patternObjects = List[(Tree, List[Tree])]()
       def recPat(t: Tree): Unit = t match {
         case pq"$ref(..$pats)" => {
           if (!ref.symbol.isModule) {
-            patternObjects = ref :: patternObjects
+            patternObjects = (ref, pats) :: patternObjects
           }
           pats.foreach(p => recPat(p))
         }
@@ -82,33 +85,32 @@ object Join {
     }
 
     // Create a List of the trees representing the patterns
-    // Tree -> List[List[(Tree)]]
     val treePattern = rawPatternTrees.map { p => getPatternObjects(p) }
 
     // Look up the symbols of the observables involved in the patterns
-    // List[List[Tree]] -> List[List[(Symbol, Tree, Tree)]]
-    val symbolTreePattern = treePattern.map { ts => ts.map { t => (t.symbol, t) } }
+    val symbolTreePattern = treePattern.map(p => p.map(_._1)).map { ts => ts.map { t => (t.symbol, t) } }
+
+    // Look up for the symbols of the pattern-variables, like the "x" in "case p(x)"
+    val symbolsToBindTree = treePattern.map { p => p.map { case (t, pats) => t.symbol -> pats } }
 
     // Create a map from observable symbols to their tree representation
-    // List[List[(Symbol, Tree)] -> List[(Symbol, Tree)] -> Map[Symbol, Tree]
     val symbolsToTrees = symbolTreePattern.flatten.toMap
 
     // For every observable create a unique id, and create a map from the symbol to the id
-    // Map[Symbol, Tree] -> Map[(Symbol, Tree), Int] -> Map[Symbol, Int]
     val symbolsToIds = symbolsToTrees.zipWithIndex
       .map { case ((s, _), i) => (s, 1 << i) }
 
     // Create a representation of patterns with observable-symbols
-    // List[List[(Symbol, Tree)]] -> List[List[Symbol]]
     val symbolPattern = symbolTreePattern.map { ps => ps.map { case (s, t) => s } }
 
     // Create for every pattern its id by "or"-ing together the ids of all involved observables
-    // List[List[Symbol]] -> List[(List[Int], List[Symbol])] -> List[(Int, List[Symbol])]
-    // Regarding the zip: I hope the list combinators keep the order of the lists
+    // Regarding the zips: I hope the list combinators keep the order of the lists
     val patterns = symbolPattern
-      .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) }
-      .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) }
-      .zip(cases.map( c => c.body))
+      .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) } // get the ids of the observables
+      .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) } // calculate pattern-id from the ids
+      .zip { cases.map(c => c.body) } // add the body of the pattern to the pattern
+      .zip (symbolsToBindTree) // add the mapping from observables to their pattern-bind-variables
+      .map { case (((pid, obs), body), pVars) => pid -> (obs, body, pVars.toMap) } // tidy up a bit
 
     val stateVar = TermName(c.freshName("state"))
     val stateLockVal = TermName(c.freshName("stateLock"))
@@ -122,28 +124,29 @@ object Join {
       val TypeRef(_, _, obsTpe :: Nil) = tpe
       obsTpe
     }
-    // TODO: move obsSym.typeSignature.asInstanceOf[TypeRefApi].args.head
-    // into the a class "PatternObject"
-    val queueDeclarations = symbolstoQueues.map { case (sym, name) =>
-      val obsTpe = getFirstTypeArgument(sym)
-      q"""
+
+    val queueDeclarations = symbolstoQueues.map {
+      case (sym, name) =>
+        val obsTpe = getFirstTypeArgument(sym)
+        q"""
       val $name = mutable.Queue[$obsTpe]()
       """
     }
 
-    def generatePatternChecks(obsSym: Symbol, possibleStateVal: TermName) = {
-      val ownPatterns = patterns.filter { case ((_, syms), _) => syms.exists { s => s == obsSym } }
+    def generatePatternChecks(nextMessage: Tree, obsSym: Symbol, possibleStateVal: TermName) = {
+      val ownPatterns = patterns.filter { case (_, (syms, _, _)) => syms.exists { s => s == obsSym } }
       ownPatterns.map {
-        case ((pid, syms), body) => {
+        case (pid, (syms, body, pVars)) => {
           val others = syms.filter { s => s != obsSym }
           val dequedMessageVals = others.map { sym => sym -> TermName(c.freshName("message")) }
-          val dequedMessageValsDecl = dequedMessageVals.map { case (sym, name) => 
-            val queue = symbolstoQueues.get(sym).get
-            // We return a pair of trees because if written toghether a block is created which
-            // is not removed later when using ..$. The problem then is that the dequeued vars are
-            // in the block scope and cannot be accessed outside of it.
-            (q"val $name = $queue.dequeue()", 
-            q"""
+          val dequedMessageValsDecl = dequedMessageVals.map {
+            case (sym, name) =>
+              val queue = symbolstoQueues.get(sym).get
+              // We return a pair of trees because if written toghether a block is created which
+              // is not removed later when using ..$. The problem then is that the dequeued vars are
+              // in the block scope and cannot be accessed outside of it.
+              (q"val $name = $queue.dequeue()",
+                q"""
             if ($queue.isEmpty) {
               $stateVar = $stateVar & ~${symbolsToIds.get(sym).get}
             }""")
@@ -151,23 +154,26 @@ object Join {
           // The following code uses the dequeued items to execute the pattern-body: we replace
           // all occurences of the pattern "bind variables" (like the "x" in "O(x)) with the symbol
           // of the value holding the dequeued messages. We use the compiler internal symbol table,
-          // and thus have to cast all trees, and symbols in the internal types.
+          // and thus have to cast all trees, and symbols in the internal types
           val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
-          val ids = dequedMessageVals.map { case (_, name) => Ident(name).asInstanceOf[symtable.Tree]}
-          val symsToReplace = dequedMessageVals.map { case (sym, _) => sym.asInstanceOf[symtable.Symbol]}
-          println(ids)
-          println(symsToReplace)
-          val substituter = new symtable.TreeSubstituter(symsToReplace, ids)
-          val transformedBody = substituter.transform(body.asInstanceOf[symtable.Tree])
+          val ids = dequedMessageVals.map { case (_, name) => Ident(name).asInstanceOf[symtable.Tree] }
+          val symsToReplace = dequedMessageVals.map { case (sym, _) => pVars.get(sym).get.head.symbol.asInstanceOf[symtable.Symbol] } 
+          val nextMessageSymbol = nextMessage.symbol.asInstanceOf[symtable.Symbol]
+          val nextMessagePvar = pVars.get(obsSym).get.head.asInstanceOf[symtable.Tree]
+          // LOOK HERE PHILIPP: My goal is to add nextMessageSymbol to the symToReplace list,
+          // and nextMessageP(attern)var to the ids list.
+          println(nextMessageSymbol) // This prints Null
+          val dequeuedMessageSubstituter = new symtable.TreeSubstituter(symsToReplace, ids)
+          val transformedBody = dequeuedMessageSubstituter.transform(body.asInstanceOf[symtable.Tree])
           val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree])
-          println("body: " + showRaw(body))
-          println("transformed: " + showRaw(checkedTransformedBody))
+          println(showRaw(body, printIds = true))
+          println(showRaw(checkedTransformedBody, printIds = true))
+          println()
           q"""
           if ((~$possibleStateVal & $pid) == 0) {
             ..${dequedMessageValsDecl.map(p => p._1)}
             ..${dequedMessageValsDecl.map(p => p._2)}
             $stateLockVal.release()
-            $checkedTransformedBody
             break
           }
           """
@@ -177,18 +183,17 @@ object Join {
     val subscriptions = symbolsToTrees.map {
       case (obsSym, tree) => {
         val possibleStateVal = TermName(c.freshName("possibleStateVal"))
-        // TODO: Checks - to ensure we have valid observables
-        // For example just a single type argument.
-        val obsTpe = getFirstTypeArgument(obsSym) 
+        val nextMessage = Ident(TermName(c.freshName("nextMessage")))
+        val obsTpe = getFirstTypeArgument(obsSym)
         q"""
         $tree.observable.subscribe { new _root_.rx.functions.Action1[$obsTpe] {
-            def call(next: $obsTpe) = {
+            def call($nextMessage: $obsTpe) = {
               $stateLockVal.acquire()
               val $possibleStateVal = $stateVar | ${symbolsToIds.get(obsSym).get}
               breakable {
-                ..${generatePatternChecks(obsSym, possibleStateVal)}
+                ..${generatePatternChecks(nextMessage, obsSym, possibleStateVal)}
                 // reaching here means no pattern has matched:
-                ${symbolstoQueues.get(obsSym).get}.enqueue(next)
+                ${symbolstoQueues.get(obsSym).get}.enqueue($nextMessage)
                 println(${symbolstoQueues.get(obsSym).get})
                 $stateVar = $possibleStateVal
                 $stateLockVal.release()
