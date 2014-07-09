@@ -65,6 +65,7 @@ object Join {
         3. Disallow all pattern-matching features which are not supported, like "|"
         Functionality:
         Transform
+        unsubscribe?
     */
     val q"{ case ..$cases }" = pf
     val rawPatternTrees = cases map { c => c.pat }
@@ -112,17 +113,14 @@ object Join {
       .zip(symbolsToBindTree) // add the mapping from observables to their pattern-bind-variables
       .map { case (((pid, obs), body), pVars) => pid -> (obs, body, pVars.toMap) } // tidy up a bit
 
-    val stateVar = TermName(c.freshName("state"))
-    val stateLockVal = TermName(c.freshName("stateLock"))
-
-    val symbolstoQueues = symbolsToIds.map {
-      case (sym, id) => sym -> TermName(c.freshName(s"obs${id}_queue"))
-    }
-
     def getFirstTypeArgument(sym: Symbol) = {
       val NullaryMethodType(tpe) = sym.typeSignature
       val TypeRef(_, _, obsTpe :: Nil) = tpe
       obsTpe
+    }
+
+    val symbolstoQueues = symbolsToIds.map {
+      case (sym, id) => sym -> TermName(c.freshName(s"obs${id}_queue"))
     }
 
     val queueDeclarations = symbolstoQueues.map {
@@ -130,6 +128,9 @@ object Join {
         val obsTpe = getFirstTypeArgument(sym)
         q"val $name = mutable.Queue[$obsTpe]()"
     }
+
+    val stateVar = TermName(c.freshName("state"))
+    val stateLockVal = TermName(c.freshName("stateLock"))
 
     def generatePatternChecks(nextMessage: Tree, obsSym: Symbol, possibleStateVal: TermName) = {
       val ownPatterns = patterns.filter { case (_, (syms, _, _)) => syms.exists { s => s == obsSym } }
