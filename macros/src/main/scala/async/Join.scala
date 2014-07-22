@@ -55,10 +55,10 @@ object Join {
   // val patternsToIds: Map[Pattern, Long]
 
   // YOU WERE (ALSO) HERE: two problems
-  // - Is it possible to have the same observable twice in the same pattern? NO?
+  // - Is it possible to have the same observable twice in the same pattern? NO? Why not?
   // - Extra buffers for the done? No, we can just store it in the id.
   // - The error message needs to be buffered! E.g. if o2 fires first in: o1.error(e) && o2(x) =>
-  // - Not giving the observables an id means that we cannot allow things like o3(x) && o3.error(x) - anyway: what does o(x) && o(x) supposed to mean anyway?
+  // - Not giving the observables an id means that we cannot allow things like o3(x) && o3.error(x) - anyway: what does o(x) && o(x) supposed to mean anyway? (x,x)?
   // - We will also need to replace the throwable in case of an error.
   // - Do we also need to rescan after a successful match? 
   // -> Maybe write it in the manual transform first?
@@ -76,30 +76,35 @@ object Join {
     sealed trait Event extends PatternTree {
       def source: Symbol
     }
-    case class Next(source: Symbol, variable: Symbol) extends Event
-    case class NextFilter(source: Symbol, filter: Literal) extends Event
-    case class Error(source: Symbol, throwable: Symbol) extends Event
+    case class Next(source: Symbol) extends Event
+    case class NextFilter(source: Symbol, filter: Constant) extends Event
+    case class Error(source: Symbol) extends Event
     case class Done(source: Symbol) extends Event
 
-    def transformToPatternTree(tree: Tree): PatternTree = {
+    def transformToPatternTree(tree: Tree): (PatternTree, Map[Event, Symbol]) = {
       tree match {
         case pq"$ref(..$pats)" if pats.size == 2 => 
-          val left = transformToPatternTree(pats(0))
-          val right = transformToPatternTree(pats(1))
+          val (left, leftBindings) = transformToPatternTree(pats(0))
+          val (right, rightBindings) = transformToPatternTree(pats(1))
+          val combinedBindings = leftBindings ++ rightBindings
           // TODO: Find better way of distinguishing && and ||
           ref.symbol.typeSignature.toString match {
-            case t if t.contains("&&.type") => And(left, right)
-            case t if t.contains("||.type") => Or(left, right)
+            case t if t.contains("&&.type") => (And(left, right), combinedBindings)
+            case t if t.contains("||.type") => (Or(left, right), combinedBindings)
           }
         case pq"$ref(..$pats)" if pats.size == 1 => pats.head match {
           case b @ Bind(_, _) => ref match {
-            case Select(s @ _, TermName("error")) => Error(s.symbol, b.symbol)
-            case _ => Next(ref.symbol, b.symbol)
+            case Select(s @ _, TermName("error")) => 
+              val error  = Error(s.symbol)
+              (error, Map(error -> b.symbol))
+            case _ => 
+              val next = Next(ref.symbol)
+              (next, Map(next -> b.symbol))
           }
-          case l @ Literal(_) => NextFilter(ref.symbol, l)
+          case Literal(c @ Constant(_)) => (NextFilter(ref.symbol, c), Map[Event, Symbol]())
         }
         case pq"$ref" => ref match {
-          case Select(obs @ Select(_, _), TermName("done")) => Done(obs.symbol)
+          case Select(obs @ Select(_, _), TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
         }
       } 
     }
@@ -108,38 +113,29 @@ object Join {
 
     // def orElimination(patternTree: PatternTree): PatternTree = ???
 
-    // Expects patternTree to contain no or nodes
-    def extractEvents(patternTree: PatternTree): List[Event] =  patternTree match {
+    // TODO: How to report errors? Expects patternTree to contain no or nodes
+    // case Or(_, _) => // TODO: Error-state
+    def extractEvents(patternTree: PatternTree): Set[Event] = patternTree match {
       case And(l , r) => extractEvents(l) ++ extractEvents(r)
-      // case Or(_, _) => // TODO: Error-state
-      case other: Event => List(other)
+      case other: Event => Set(other)
     }
 
-    case class Pattern(bodyTree: Tree, guardTree: Tree, events: List[Event])
+    case class Pattern(events: Set[Event], bindings: Map[Event, Symbol], bodyTree: Tree, guardTree: Tree)
 
     val q"{ case ..$cases }" = pf
     
-    println(cases map (c => { 
-      val patternTree = transformToPatternTree(c.pat)
+    val patterns = cases map(c => { 
+      val (patternTree, bindings) = transformToPatternTree(c.pat)
       val events = extractEvents(patternTree)
-      Pattern(c.body, c.guard, events)
-    }))
+      Pattern(events, bindings, c.body, c.guard)
+    })
   
-
+    val allEvents = (patterns flatMap { case Pattern(es, _, _, _) => es }).toSet
+    println(allEvents)
+    
+    // val observablesToEvents = observables map(s => s -> (allEvents filter(e => e.source == s)))
+    // can be created. Need to create ids for the events and patterns.
 /*
-    println(rawPatternTrees.map { p => transformToPatternTree(p) })
-
-    // Create a List of the trees representing the patterns
-    val treePattern = rawPatternTrees.map { p => getPatternObjects(p) }
-
-    // Look up the symbols of the observables involved in the patterns
-    val symbolTreePattern = treePattern.map(p => p.map(_._1)).map { ts => ts.map { t => (t.symbol, t) } }
-
-    // Look up for the symbols of the pattern-variables, like the "x" in "case p(x)"
-    val symbolsToBindTree = treePattern.map { p => p.map { case (t, pats) => t.symbol -> pats } }
-
-    // Create a map from observable symbols to their tree representation
-    val symbolsToTrees = symbolTreePattern.flatten.toMap
 
     // For every observable create a unique id, and create a map from the symbol to the id
     val symbolsToIds = symbolsToTrees.zipWithIndex
