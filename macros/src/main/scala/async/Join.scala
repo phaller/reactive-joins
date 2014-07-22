@@ -8,82 +8,126 @@ import rx.functions.Action1
 
 object Join {
   /* Code related for enabling our syntax in partial functions */
-  class Pattern[A](val observable: Observable[A]) {
+  class PatternAPI[A](val observable: Observable[A]) {
     def unapply(x: Any): Option[A] = ???
     object error {
       def unapply(x: Any): Option[A] = ???
     }
+    case object done extends PatternAPI(observable)
   }
 
-  object Pattern {
-    def apply[A](o: Observable[A]) = new Pattern(o)
+  object PatternAPI {
+    def apply[A](o: Observable[A]) = new PatternAPI(o)
   }
 
   object && {
-    def unapply(obj: Any): Option[(Pattern[_], Pattern[_])] = ???
+    def unapply(obj: Any): Option[(PatternAPI[_], PatternAPI[_])] = ???
   }
 
   object || {
-    def unapply(obj: Any): Option[(Pattern[_], Pattern[_])] = ???
+    def unapply(obj: Any): Option[(PatternAPI[_], PatternAPI[_])] = ???
   }
 
   implicit class ObservableJoinOps[A](o: Observable[A]) {
-    def p: Pattern[A] = Pattern(o)
+    def p: PatternAPI[A] = PatternAPI(o)
   }
 
   /* The macros implementing the transform */
-  def async[A](body: => Any): Observable[A] = macro asyncImpl[A]
 
-  def asyncImpl[A: c.WeakTypeTag](c: blackbox.Context)(body: c.Tree): c.Tree = {
-    import c.universe._
-    q""
-  }
+  // Code review: should we abstract over the following two?
 
-  // case class ObservableInfo(id: Int,
-  //                           symbol: Symbol
-  //                           patterns: List[PatternInfo],
-  //                           queue: Queue
-  //                           messageType: Type,
-  //                           dequeuedMessage: messageType,
-  //                           )  
-  //
-  // case class PatternInfo(pattern: Tree, 
-  //                        body: Tree,
-  //                        observables: List[ObservableInfo],
-  //                        patternVariables: Map[Symbol, Tree]
-  //                        id: Int
-  //                        condition: Tree)   
+  // class ThrowableBuffer(val identifier: TermName, val declaration: Tree)
+  // class Queue(val identifier: TermName, val declaration: Tree)
+  // // object Queue {
+  // //   def apply[A](prefix: Any) = new Queue(
+  // //     TermName(c.freshName(s"${prefix.toString}_queue")),
+  // //     q"val $name = mutable.Queue[$A]()")
+  // // }
 
-  def join[A](pf: PartialFunction[Pattern[_], A]): A = macro joinImpl[A]
+  // trait Event {
+  //   def source: Symbol
+  //   def patterns: List[Pattern]
+  // }
+
+  // val eventsToIds: Map[Event, Long]
+  // val eventsToQueues: Map[Next[Any], Queue[Any]]
+  // val eventsToBuffers: Map[Error, ThrowableBuffer]
+  // val patternsToIds: Map[Pattern, Long]
+
+  // YOU WERE (ALSO) HERE: two problems
+  // - Is it possible to have the same observable twice in the same pattern? NO?
+  // - Extra buffers for the done? No, we can just store it in the id.
+  // - The error message needs to be buffered! E.g. if o2 fires first in: o1.error(e) && o2(x) =>
+  // - Not giving the observables an id means that we cannot allow things like o3(x) && o3.error(x) - anyway: what does o(x) && o(x) supposed to mean anyway?
+  // - We will also need to replace the throwable in case of an error.
+  // - Do we also need to rescan after a successful match? 
+  // -> Maybe write it in the manual transform first?
+
+  def join[A](pf: PartialFunction[PatternAPI[_], A]): A = macro joinImpl[A]
 
   def joinImpl[A: c.WeakTypeTag](c: blackbox.Context)(pf: c.Tree): c.Tree = {
     import c.universe._
-    /* Functionality of join:
-        Analysis:
-        1. Dead-code elimination (-> How to throw errors?)
-        2. Determinism check
-        3. Disallow all pattern-matching features which are not supported, like "|"
-        Functionality:
-        Transform
-        unsubscribe?
-    */
-    val q"{ case ..$cases }" = pf
-    val rawPatternTrees = cases map { c => c.pat }
 
-    def getPatternObjects(t: Tree): List[(Tree, List[Tree])] = {
-      var patternObjects = List[(Tree, List[Tree])]()
-      def recPat(t: Tree): Unit = t match {
-        case pq"$ref(..$pats)" => {
-          if (!ref.symbol.isModule) {
-            patternObjects = (ref, pats) :: patternObjects
-          }
-          pats.foreach(p => recPat(p))
-        }
-        case _ =>
-      }
-      recPat(t)
-      patternObjects
+    /* TODO: Figure out how to put this somewhere else */
+    sealed trait PatternTree
+    sealed trait BinaryOperator extends PatternTree
+    case class And(left: PatternTree, right: PatternTree) extends BinaryOperator
+    case class Or(left: PatternTree, right: PatternTree) extends BinaryOperator
+    sealed trait Event extends PatternTree {
+      def source: Symbol
     }
+    case class Next(source: Symbol, variable: Symbol) extends Event
+    case class NextFilter(source: Symbol, filter: Literal) extends Event
+    case class Error(source: Symbol, throwable: Symbol) extends Event
+    case class Done(source: Symbol) extends Event
+
+    def transformToPatternTree(tree: Tree): PatternTree = {
+      tree match {
+        case pq"$ref(..$pats)" if pats.size == 2 => 
+          val left = transformToPatternTree(pats(0))
+          val right = transformToPatternTree(pats(1))
+          // TODO: Find better way of distinguishing && and ||
+          ref.symbol.typeSignature.toString match {
+            case t if t.contains("&&.type") => And(left, right)
+            case t if t.contains("||.type") => Or(left, right)
+          }
+        case pq"$ref(..$pats)" if pats.size == 1 => pats.head match {
+          case b @ Bind(_, _) => ref match {
+            case Select(s @ _, TermName("error")) => Error(s.symbol, b.symbol)
+            case _ => Next(ref.symbol, b.symbol)
+          }
+          case l @ Literal(_) => NextFilter(ref.symbol, l)
+        }
+        case pq"$ref" => ref match {
+          case Select(obs @ Select(_, _), TermName("done")) => Done(obs.symbol)
+        }
+      } 
+    }
+
+    // def semanticAnalysis(patternTree: PatternTree): Boolean = ???
+
+    // def orElimination(patternTree: PatternTree): PatternTree = ???
+
+    // Expects patternTree to contain no or nodes
+    def extractEvents(patternTree: PatternTree): List[Event] =  patternTree match {
+      case And(l , r) => extractEvents(l) ++ extractEvents(r)
+      // case Or(_, _) => // TODO: Error-state
+      case other: Event => List(other)
+    }
+
+    case class Pattern(bodyTree: Tree, guardTree: Tree, events: List[Event])
+
+    val q"{ case ..$cases }" = pf
+    
+    println(cases map (c => { 
+      val patternTree = transformToPatternTree(c.pat)
+      val events = extractEvents(patternTree)
+      Pattern(c.body, c.guard, events)
+    }))
+  
+
+/*
+    println(rawPatternTrees.map { p => transformToPatternTree(p) })
 
     // Create a List of the trees representing the patterns
     val treePattern = rawPatternTrees.map { p => getPatternObjects(p) }
@@ -206,6 +250,12 @@ object Join {
       // declare the observable subscriptions
       ..$subscriptions
       0
+    """
+    // println(out)
+    out
+    */
+    val out = q"""
+    0
     """
     println(out)
     out
