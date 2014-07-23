@@ -106,12 +106,19 @@ object Join {
         case pq"$ref" => ref match {
           case Select(obs @ Select(_, _), TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
         }
-      } 
+      }
     }
 
-    // def semanticAnalysis(patternTree: PatternTree): Boolean = ???
-
-    // def orElimination(patternTree: PatternTree): PatternTree = ???
+    val q"{ case ..$cases }" = pf
+    
+    final case class Pattern(events: Set[Event], bindings: Map[Event, Symbol], bodyTree: Tree, guardTree: Tree) {
+        override def equals(other: Any): Boolean = other match {
+          case that: Pattern => 
+            that.events == this.events && that.guardTree.equalsStructure(this.guardTree)
+          case _ => false
+        }
+        override def hashCode: Int = 41 * (41 + events.hashCode) + guardTree.hashCode
+    }
 
     // TODO: How to report errors? Expects patternTree to contain no or nodes
     // case Or(_, _) => // TODO: Error-state
@@ -120,21 +127,45 @@ object Join {
       case other: Event => Set(other)
     }
 
-    case class Pattern(events: Set[Event], bindings: Map[Event, Symbol], bodyTree: Tree, guardTree: Tree)
-
-    val q"{ case ..$cases }" = pf
-    
-    val patterns = cases map(c => { 
+    val definedPatterns: List[Pattern] = cases.map(c => { 
       val (patternTree, bindings) = transformToPatternTree(c.pat)
       val events = extractEvents(patternTree)
       Pattern(events, bindings, c.body, c.guard)
     })
-  
-    val allEvents = (patterns flatMap { case Pattern(es, _, _, _) => es }).toSet
-    println(allEvents)
-    
+
+    val patterns: Set[Pattern] = definedPatterns.toSet
+
+    if (definedPatterns.size != patterns.size) {
+      // TODO: Warning, doublicate patterns!
+    }
+
+    // Collect events across all patterns, remove duplicates, and assign to each a unique id
+    val events: Set[Event] = patterns.flatMap({ case Pattern(es, _, _, _) => es })
+                                     .toSet
+    val eventsToIds: Map[Event, Long] = events.zipWithIndex
+                                              .map({ case (e, i) => (e, 1L << i) })
+                                              .toMap
+    // Calculate pattern ids by "or"-ing the ids of their events
+    def accumulateEventId(acc: Long, event: Event) = acc | eventsToIds.get(event).get
+    val patternsToIds: Map[Pattern, Long] = 
+      patterns.map(p => p -> p.events.foldLeft(0L)(accumulateEventId)).toMap
+
+    println(patternsToIds)
+
+    val subscriptions = events.map(e => e match {
+      case n @ (_: Next | _: NextFilter) => n match {
+        case Next(source) => "Subscribe Next"
+        case NextFilter(source, constant) => "Subscribe Next Filter"
+      }
+      case Error(source) => "Subscribe Error"
+      case Done(source) => "Subscibe Done"
+    })
+
+    // YOU WERE HERE: Giving the Patterns their id by their events
+
     // val observablesToEvents = observables map(s => s -> (allEvents filter(e => e.source == s)))
     // can be created. Need to create ids for the events and patterns.
+
 /*
 
     // For every observable create a unique id, and create a map from the symbol to the id
