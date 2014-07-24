@@ -36,14 +36,6 @@ object Join {
 
   // Code review: should we abstract over the following two?
 
-  // class ThrowableBuffer(val identifier: TermName, val declaration: Tree)
-  // class Queue(val identifier: TermName, val declaration: Tree)
-  // // object Queue {
-  // //   def apply[A](prefix: Any) = new Queue(
-  // //     TermName(c.freshName(s"${prefix.toString}_queue")),
-  // //     q"val $name = mutable.Queue[$A]()")
-  // // }
-
   // trait Event {
   //   def source: Symbol
   //   def patterns: List[Pattern]
@@ -56,10 +48,7 @@ object Join {
 
   // YOU WERE (ALSO) HERE: two problems
   // - Is it possible to have the same observable twice in the same pattern? NO? Why not?
-  // - Extra buffers for the done? No, we can just store it in the id.
-  // - The error message needs to be buffered! E.g. if o2 fires first in: o1.error(e) && o2(x) =>
   // - Not giving the observables an id means that we cannot allow things like o3(x) && o3.error(x) - anyway: what does o(x) && o(x) supposed to mean anyway? (x,x)?
-  // - We will also need to replace the throwable in case of an error.
   // - Do we also need to rescan after a successful match? 
   // -> Maybe write it in the manual transform first?
 
@@ -89,19 +78,19 @@ object Join {
           val combinedBindings = leftBindings ++ rightBindings
           // TODO: Find better way of distinguishing && and ||
           ref.symbol.typeSignature.toString match {
-            case t if t.contains("&&.type") => (And(left, right), combinedBindings)
-            case t if t.contains("||.type") => (Or(left, right), combinedBindings)
+            case tpe if tpe.contains("&&.type") => (And(left, right), combinedBindings)
+            case tpe if tpe.contains("||.type") => (Or(left, right), combinedBindings)
           }
         case pq"$ref(..$pats)" if pats.size == 1 => pats.head match {
-          case b @ Bind(_, _) => ref match {
-            case Select(s @ _, TermName("error")) => 
-              val error  = Error(s.symbol)
-              (error, Map(error -> b.symbol))
+          case patternVar @ Bind(_, _) => ref match {
+            case Select(obs @ _, TermName("error")) => 
+              val error  = Error(obs.symbol)
+              (error, Map(error -> patternVar.symbol))
             case _ => 
               val next = Next(ref.symbol)
-              (next, Map(next -> b.symbol))
+              (next, Map(next -> patternVar.symbol))
           }
-          case Literal(c @ Constant(_)) => (NextFilter(ref.symbol, c), Map[Event, Symbol]())
+          case Literal(const @ Constant(_)) => (NextFilter(ref.symbol, const), Map[Event, Symbol]())
         }
         case pq"$ref" => ref match {
           case Select(obs @ Select(_, _), TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
@@ -123,14 +112,14 @@ object Join {
     // TODO: How to report errors? Expects patternTree to contain no or nodes
     // case Or(_, _) => // TODO: Error-state
     def extractEvents(patternTree: PatternTree): Set[Event] = patternTree match {
-      case And(l , r) => extractEvents(l) ++ extractEvents(r)
+      case And(left , right) => extractEvents(left) ++ extractEvents(right)
       case other: Event => Set(other)
     }
 
-    val definedPatterns: List[Pattern] = cases.map(c => { 
-      val (patternTree, bindings) = transformToPatternTree(c.pat)
+    val definedPatterns: List[Pattern] = cases.map(caze => { 
+      val (patternTree, bindings) = transformToPatternTree(caze.pat)
       val events = extractEvents(patternTree)
-      Pattern(events, bindings, c.body, c.guard)
+      Pattern(events, bindings, caze.body, caze.guard)
     })
 
     val patterns: Set[Pattern] = definedPatterns.toSet
@@ -140,49 +129,15 @@ object Join {
     }
 
     // Collect events across all patterns, remove duplicates, and assign to each a unique id
-    val events: Set[Event] = patterns.flatMap({ case Pattern(es, _, _, _) => es })
+    val events: Set[Event] = patterns.flatMap({ case Pattern(events, _, _, _) => events })
                                      .toSet
     val eventsToIds: Map[Event, Long] = events.zipWithIndex
-                                              .map({ case (e, i) => (e, 1L << i) })
+                                              .map({ case (event, index) => (event, 1L << index) })
                                               .toMap
     // Calculate pattern ids by "or"-ing the ids of their events
     def accumulateEventId(acc: Long, event: Event) = acc | eventsToIds.get(event).get
     val patternsToIds: Map[Pattern, Long] = 
       patterns.map(p => p -> p.events.foldLeft(0L)(accumulateEventId)).toMap
-
-    println(patternsToIds)
-
-    val subscriptions = events.map(e => e match {
-      case n @ (_: Next | _: NextFilter) => n match {
-        case Next(source) => "Subscribe Next"
-        case NextFilter(source, constant) => "Subscribe Next Filter"
-      }
-      case Error(source) => "Subscribe Error"
-      case Done(source) => "Subscibe Done"
-    })
-
-    // YOU WERE HERE: Giving the Patterns their id by their events
-
-    // val observablesToEvents = observables map(s => s -> (allEvents filter(e => e.source == s)))
-    // can be created. Need to create ids for the events and patterns.
-
-/*
-
-    // For every observable create a unique id, and create a map from the symbol to the id
-    val symbolsToIds = symbolsToTrees.zipWithIndex
-      .map { case ((s, _), i) => (s, 1 << i) }
-
-    // Create a representation of patterns with observable-symbols
-    val symbolPattern = symbolTreePattern.map { ps => ps.map { case (s, t) => s } }
-
-    // Create for every pattern its id by "or"-ing together the ids of all involved observables
-    // Regarding the zips: I hope the list combinators keep the order of the lists
-    val patterns = symbolPattern
-      .map { ss => (ss.map { s => symbolsToIds.get(s).get }, ss) } // get the ids of the observables
-      .map { case (ids, ss) => (ids.foldLeft(0) { (acc, i) => acc | i }, ss) } // calculate pattern-id from the ids
-      .zip { cases.map(c => c.body) } // add the body of the pattern to the pattern
-      .zip(symbolsToBindTree) // add the mapping from observables to their pattern-bind-variables
-      .map { case (((pid, obs), body), pVars) => pid -> (obs, body, pVars.toMap) } // tidy up a bit
 
     def getFirstTypeArgument(sym: Symbol) = {
       val NullaryMethodType(tpe) = sym.typeSignature
@@ -190,18 +145,97 @@ object Join {
       obsTpe
     }
 
-    val symbolstoQueues = symbolsToIds.map {
-      case (sym, id) => sym -> TermName(c.freshName(s"obs${id}_queue"))
-    }
+    case class NewDecl(name: TermName, declaration: Tree)
 
-    val queueDeclarations = symbolstoQueues.map {
-      case (sym, name) =>
-        val obsTpe = getFirstTypeArgument(sym)
-        q"val $name = mutable.Queue[$obsTpe]()"
-    }
+    val nextEventsToQueues = 
+      events.collect({ case event: Next => event })
+            .map(event => {
+                  val obsTpe = getFirstTypeArgument(event.source)
+                  val queueName = TermName(c.freshName("eventQueue"))
+                  val queueDeclaration = q"val $queueName = mutable.Queue[$obsTpe]()"
+                  event -> NewDecl(queueName, queueDeclaration)})
+            .toMap
+
+    val errorEventsToVars = events.collect({ case event: Error => event})
+                                  .map(event => {
+                                    val throwableVar = TermName(c.freshName("error"))
+                                    val declaration = q"var $throwableVar = null" 
+                                    event -> NewDecl(throwableVar, declaration)})
+                                  .toMap
 
     val stateVar = TermName(c.freshName("state"))
     val stateLockVal = TermName(c.freshName("stateLock"))
+
+
+
+    val subscriptions = events.toList.map(event => event match {
+      case next @ (_: Next | _: NextFilter) => next match {
+        case next @ Next(source) => 
+          val possibleStateVal = TermName(c.freshName("possibleState"))
+          val myPatterns = patterns.filter(pattern => pattern.events.contains(next))
+          val patternChecks = myPatterns.toList.map(myPattern => {
+            val otherEvents = myPattern.events.toList.filter(event => event != next)
+            val dequeueBuffers = otherEvents.collect({ case event: Next => event})
+                                            .map(event => event -> TermName(c.freshName("dequeuedMessage")))
+            val dequeueStats = dequeueBuffers.map({ case (event, name) => 
+              val queue = nextEventsToQueues.get(event).get.name
+              (q"val $name = ${queue}.dequeue()",
+              q""" 
+              if ($queue.isEmpty) {
+                $stateVar = $stateVar & ~${eventsToIds.get(event).get}
+              }""")})
+            val errorVars = otherEvents.collect({ case event: Error => event})
+                                       .map(event => event -> errorEventsToVars.get(event).get.name)
+            // The following code uses the dequeued items to execute the pattern-body: we replace
+            // all occurences of the pattern "bind variables" (like the "x" in "O(x)) with the symbol
+            // of the value holding the dequeued messages. We use the compiler internal symbol table,
+            // and thus have to cast all trees, and symbols in the internal types
+            val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
+            val combinedEvents = dequeueBuffers ++ errorVars
+            val ids = combinedEvents.map({ case (_, name) => Ident(name).asInstanceOf[symtable.Tree]})
+            
+            val symsToReplace = combinedEvents.map({ case (event, _) => myPattern.bindings.get(event).get.symbol.asInstanceOf[symtable.Symbol]})
+            
+            // YOU WERE HERE: fixing the next message thing.
+            val nextMessageTree = nextMessage.asInstanceOf[symtable.Tree]
+            val nextMessageSymbol = pVars.get(obsSym).get.head.symbol.asInstanceOf[symtable.Symbol]
+
+            val substituter = new symtable.TreeSubstituter(nextMessageSymbol :: symsToReplace, nextMessageTree :: ids)
+            val transformedBody = substituter.transform(myPattern.body.asInstanceOf[symtable.Tree])
+            val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree]) 
+            q"""
+            if ((~$possibleStateVal & ${patternsToIds.get(myPattern).get}) == 0) {
+              ..${dequeueStats.map({case (dequeueStats, _) => dequeueStats })}
+              ..${dequeueStats.map({case (_, statusStats) => statusStats })}
+              $stateLockVal.release()
+              break
+            }
+            """
+          })
+          (nextMessage: TermName) => q"""
+            $stateLockVal.acquire()
+            val $possibleStateVal = $stateVar | ${eventsToIds.get(next).get}
+            breakable {
+              ..$patternChecks
+              // reaching here means no pattern has matched:
+              ${nextEventsToQueues.get(next).get.name}.enqueue($nextMessage)
+              $stateVar = $possibleStateVal
+              $stateLockVal.release()
+            }
+          """
+        // TODO: case NextFilter(source, constant) => "Subscribe Next Filter"
+      }
+      case Error(source) => (nextMessage: TermName) => q""
+      case Done(source) => (nextMessage: TermName) => q""
+    })
+
+    println(subscriptions.map(fn => fn(TermName(c.freshName("nextMessage")))))
+    // YOU WERE HERE: thinking about creating the subscriptions!
+
+/*
+
+    // Create for every pattern its id by "or"-ing together the ids of all involved observables
+    // Regarding the zips: I hope the list combinators keep the order of the lists
 
     def generatePatternChecks(nextMessage: Tree, obsSym: Symbol, possibleStateVal: TermName) = {
       val ownPatterns = patterns.filter { case (_, (syms, _, _)) => syms.exists { s => s == obsSym } }
@@ -282,7 +316,16 @@ object Join {
     out
     */
     val out = q"""
-    0
+      import _root_.scala.util.control.Breaks._
+      import _root_.scala.collection.mutable
+      // Required for state handling
+      var $stateVar: Long = 0L
+      val $stateLockVal = new _root_.scala.concurrent.Lock()
+      // Queue declarations for Next events
+      ..${nextEventsToQueues.map({ case (_, NewDecl(_, declaration)) => declaration })}
+      // Variable declarations to store Error events
+      ..${errorEventsToVars.map({ case (_, NewDecl(_, declaration)) => declaration })}
+      0
     """
     println(out)
     out
