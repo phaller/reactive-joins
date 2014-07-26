@@ -202,8 +202,8 @@ object Join {
             val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree]) 
             q"""
             if ((~$possibleStateVal & ${patternsToIds.get(myPattern).get}) == 0) {
-              ..${dequeueStats.map({case (dequeueStats, _) => dequeueStats })}
-              ..${dequeueStats.map({case (_, statusStats) => statusStats })}
+              ..${dequeueStats.map({ case (dequeueStats, _) => dequeueStats })}
+              ..${dequeueStats.map({ case (_, statusStats) => statusStats })}
               $stateLockVal.release()
               println("calculated result: " + $checkedTransformedBody)
               break
