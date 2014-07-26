@@ -156,26 +156,23 @@ object Join {
                   event -> NewDecl(queueName, queueDeclaration)})
             .toMap
 
-    val errorEventsToVars = events.collect({ case event: Error => event})
+    val errorEventsToVars = events.collect({ case event: Error => event })
                                   .map(event => {
                                     val throwableVar = TermName(c.freshName("error"))
-                                    val declaration = q"var $throwableVar = null" 
+                                    val declaration = q"var $throwableVar: Throwable = null" 
                                     event -> NewDecl(throwableVar, declaration)})
                                   .toMap
 
     val stateVar = TermName(c.freshName("state"))
     val stateLockVal = TermName(c.freshName("stateLock"))
 
-
-
-    val subscriptions = events.toList.map(event => event match {
-      case next @ (_: Next | _: NextFilter) => next match {
-        case next @ Next(source) => 
+    val subscriptions = events.toList.map(subscribeEvent => subscribeEvent -> ((nextMessage: Option[TermName]) => { 
           val possibleStateVal = TermName(c.freshName("possibleState"))
-          val myPatterns = patterns.filter(pattern => pattern.events.contains(next))
+          val myPatterns = patterns.filter(pattern => pattern.events.contains(subscribeEvent))
+          // Generate the if-expressions which check whether a pattern has matched
           val patternChecks = myPatterns.toList.map(myPattern => {
-            val otherEvents = myPattern.events.toList.filter(event => event != next)
-            val dequeueBuffers = otherEvents.collect({ case event: Next => event})
+            val otherEvents = myPattern.events.toList.filter(event => event != subscribeEvent)
+            val dequeueBuffers = otherEvents.collect({ case event: Next => event })
                                             .map(event => event -> TermName(c.freshName("dequeuedMessage")))
             val dequeueStats = dequeueBuffers.map({ case (event, name) => 
               val queue = nextEventsToQueues.get(event).get.name
@@ -183,7 +180,8 @@ object Join {
               q""" 
               if ($queue.isEmpty) {
                 $stateVar = $stateVar & ~${eventsToIds.get(event).get}
-              }""")})
+              }""")
+            })
             val errorVars = otherEvents.collect({ case event: Error => event})
                                        .map(event => event -> errorEventsToVars.get(event).get.name)
             // The following code uses the dequeued items to execute the pattern-body: we replace
@@ -192,129 +190,95 @@ object Join {
             // and thus have to cast all trees, and symbols in the internal types
             val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
             val combinedEvents = dequeueBuffers ++ errorVars
-            val ids = combinedEvents.map({ case (_, name) => Ident(name).asInstanceOf[symtable.Tree]})
-            
-            val symsToReplace = combinedEvents.map({ case (event, _) => myPattern.bindings.get(event).get.symbol.asInstanceOf[symtable.Symbol]})
-            
-            // YOU WERE HERE: fixing the next message thing.
-            val nextMessageTree = nextMessage.asInstanceOf[symtable.Tree]
-            val nextMessageSymbol = pVars.get(obsSym).get.head.symbol.asInstanceOf[symtable.Symbol]
-
-            val substituter = new symtable.TreeSubstituter(nextMessageSymbol :: symsToReplace, nextMessageTree :: ids)
-            val transformedBody = substituter.transform(myPattern.body.asInstanceOf[symtable.Tree])
+            var symsToReplace = combinedEvents.map({ case (event, _) => myPattern.bindings.get(event).get.asInstanceOf[symtable.Symbol]}) 
+            var ids = combinedEvents.map({ case (_, name) => Ident(name).asInstanceOf[symtable.Tree]})
+            // If the occurred event includes a message, we also need to replace it in the body!
+            if (nextMessage.nonEmpty) {
+              symsToReplace = myPattern.bindings.get(subscribeEvent).get.asInstanceOf[symtable.Symbol] :: symsToReplace
+              ids = Ident(nextMessage.get).asInstanceOf[symtable.Tree] :: ids
+            }
+            val substituter = new symtable.TreeSubstituter(symsToReplace, ids)
+            val transformedBody = substituter.transform(myPattern.bodyTree.asInstanceOf[symtable.Tree])
             val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree]) 
             q"""
             if ((~$possibleStateVal & ${patternsToIds.get(myPattern).get}) == 0) {
               ..${dequeueStats.map({case (dequeueStats, _) => dequeueStats })}
               ..${dequeueStats.map({case (_, statusStats) => statusStats })}
               $stateLockVal.release()
+              println("calculated result: " + $checkedTransformedBody)
               break
             }
             """
           })
-          (nextMessage: TermName) => q"""
+          val bufferStat = subscribeEvent match {
+            case next @ Next(_) => q"${nextEventsToQueues.get(next).get.name}.enqueue(${nextMessage.get})"
+            case error @ Error(_) => q"${errorEventsToVars.get(error).get.name} = ${nextMessage.get}"
+            case _ => q""
+          }
+          q"""
             $stateLockVal.acquire()
-            val $possibleStateVal = $stateVar | ${eventsToIds.get(next).get}
+            val $possibleStateVal = $stateVar | ${eventsToIds.get(subscribeEvent).get}
             breakable {
               ..$patternChecks
               // reaching here means no pattern has matched:
-              ${nextEventsToQueues.get(next).get.name}.enqueue($nextMessage)
+              $bufferStat
               $stateVar = $possibleStateVal
               $stateLockVal.release()
             }
           """
-        // TODO: case NextFilter(source, constant) => "Subscribe Next Filter"
-      }
-      case Error(source) => (nextMessage: TermName) => q""
-      case Done(source) => (nextMessage: TermName) => q""
-    })
+    }))
 
-    println(subscriptions.map(fn => fn(TermName(c.freshName("nextMessage")))))
-    // YOU WERE HERE: thinking about creating the subscriptions!
+    val observalbesToEvents = subscriptions.groupBy({ case (subscribeEvent, _) => subscribeEvent.source }) 
 
-/*
-
-    // Create for every pattern its id by "or"-ing together the ids of all involved observables
-    // Regarding the zips: I hope the list combinators keep the order of the lists
-
-    def generatePatternChecks(nextMessage: Tree, obsSym: Symbol, possibleStateVal: TermName) = {
-      val ownPatterns = patterns.filter { case (_, (syms, _, _)) => syms.exists { s => s == obsSym } }
-      ownPatterns.map {
-        case (pid, (syms, body, pVars)) => {
-          val others = syms.filter { s => s != obsSym }
-          val dequedMessageVals = others.map { sym => sym -> TermName(c.freshName("message")) }
-          val dequedMessageValsDecl = dequedMessageVals.map {
-            case (sym, name) =>
-              val queue = symbolstoQueues.get(sym).get
-              // We return a pair of trees because if written toghether a block is created which
-              // is not removed later when using ..$. The problem then is that the dequeued vars are
-              // in the block scope and cannot be accessed outside of it.
-              (q"val $name = $queue.dequeue()",
-                q""" if ($queue.isEmpty) {
-                        $stateVar = $stateVar & ~${symbolsToIds.get(sym).get}
-                     }""")
-          }
-          // The following code uses the dequeued items to execute the pattern-body: we replace
-          // all occurences of the pattern "bind variables" (like the "x" in "O(x)) with the symbol
-          // of the value holding the dequeued messages. We use the compiler internal symbol table,
-          // and thus have to cast all trees, and symbols in the internal types
-          val symtable = c.universe.asInstanceOf[scala.reflect.internal.SymbolTable]
-          val ids = dequedMessageVals.map { case (_, name) => Ident(name).asInstanceOf[symtable.Tree] }
-          val symsToReplace = dequedMessageVals.map { case (sym, _) => pVars.get(sym).get.head.symbol.asInstanceOf[symtable.Symbol] }
-          val nextMessageTree = nextMessage.asInstanceOf[symtable.Tree]
-          val nextMessageSymbol = pVars.get(obsSym).get.head.symbol.asInstanceOf[symtable.Symbol]
-          val dequeuedMessageSubstituter = new symtable.TreeSubstituter(nextMessageSymbol :: symsToReplace, nextMessageTree :: ids)
-          val transformedBody = dequeuedMessageSubstituter.transform(body.asInstanceOf[symtable.Tree])
-          val checkedTransformedBody = c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree])
+    val subscribeActions = observalbesToEvents.map({ case (obsSym, events) => 
+      val obsTpe = getFirstTypeArgument(obsSym)
+      val nextSubscription = 
+        events.filter(event => event._1.isInstanceOf[Next]).map({ case (next, patternChecks) => 
+          val nextMessage = TermName(c.freshName("nextMessage"))
+          val obsTpe = getFirstTypeArgument(obsSym)
           q"""
-          if ((~$possibleStateVal & $pid) == 0) {
-            ..${dequedMessageValsDecl.map(p => p._1)}
-            ..${dequedMessageValsDecl.map(p => p._2)}
-            $stateLockVal.release()
-            println("calculated result: " + $checkedTransformedBody)
-            break
-          }
-          """
-        }
-      }
-    }
-    val subscriptions = symbolsToTrees.map {
-      case (obsSym, tree) => {
-        val possibleStateVal = TermName(c.freshName("possibleStateVal"))
-        val nextMessage = Ident(TermName(c.freshName("nextMessage")))
-        val obsTpe = getFirstTypeArgument(obsSym)
-        q"""
-        $tree.observable.subscribe { new _root_.rx.functions.Action1[$obsTpe] {
+          new _root_.rx.functions.Action1[$obsTpe] {
             def call($nextMessage: $obsTpe) = {
-              $stateLockVal.acquire()
-              val $possibleStateVal = $stateVar | ${symbolsToIds.get(obsSym).get}
-              breakable {
-                ..${generatePatternChecks(nextMessage, obsSym, possibleStateVal)}
-                // reaching here means no pattern has matched:
-                ${symbolstoQueues.get(obsSym).get}.enqueue($nextMessage)
-                $stateVar = $possibleStateVal
-                $stateLockVal.release()
-              }
+            ..${patternChecks(Some(nextMessage))} 
             }
           }
-        }
-      """
+          """
+        })
+      val errorSubscription = 
+        events.filter(event => event._1.isInstanceOf[Error]).map({ case (next, patternChecks) => 
+          val nextMessage = TermName(c.freshName("nextMessage"))
+          q"""
+          new _root_.rx.functions.Action1[Throwable] {
+            def call($nextMessage: Throwable) = {
+            ..${patternChecks(Some(nextMessage))} 
+            }
+          }
+          """
+      })
+      val doneSubscription = 
+        events.filter(event => event._1.isInstanceOf[Done]).map({ case (next, patternChecks) => 
+        q"""
+          new _root_.rx.functions.Action0 {
+            def call() = {
+            ..${patternChecks(None)} 
+            }
+          }
+          """
+        })
+      val emptyAction1 = q"new _root_.rx.functions.Action1[Any] { def call(x: Any) = {} }"
+      val emptyThrowableAction1 = q"new _root_.rx.functions.Action1[Throwable] { def call(x: Throwable) = {} }"
+      val emptyAction0 = q"new _root_.rx.functions.Action0 { def call() = {} }"
+      (nextSubscription.size, errorSubscription.size, doneSubscription.size) match {
+        case (0, 0, 1) => q"$obsSym.observable.subscribe($emptyAction1, $emptyThrowableAction1, ${doneSubscription.head})"
+        case (0, 1, 0) => q"$obsSym.observable.subscribe($emptyAction1, ${errorSubscription.head}, $emptyAction0)"
+        case (0, 1, 1) => q"$obsSym.observable.subscribe($emptyAction1, ${errorSubscription.head}, ${doneSubscription.head})"
+        case (1, 0, 0) => q"$obsSym.observable.subscribe(${nextSubscription.head}, $emptyThrowableAction1, $emptyAction0)"
+        case (1, 0, 1) => q"$obsSym.observable.subscribe(${nextSubscription.head}, $emptyThrowableAction1, ${doneSubscription.head})"
+        case (1, 1, 0) => q"$obsSym.observable.subscribe(${nextSubscription.head}, ${errorSubscription.head},$emptyAction0)"
+        case (1, 1, 1) => q"$obsSym.observable.subscribe(${nextSubscription.head}, ${errorSubscription.head}, ${doneSubscription.head})"
       }
-    }
-    val out = q"""
-      import _root_.scala.util.control.Breaks._
-      import _root_.scala.collection.mutable
-      // state handling
-      var $stateVar = 0
-      val $stateLockVal = new _root_.scala.concurrent.Lock()
-      ..$queueDeclarations     
-      // declare the observable subscriptions
-      ..$subscriptions
-      0
-    """
-    // println(out)
-    out
-    */
+    })
+
     val out = q"""
       import _root_.scala.util.control.Breaks._
       import _root_.scala.collection.mutable
@@ -325,6 +289,7 @@ object Join {
       ..${nextEventsToQueues.map({ case (_, NewDecl(_, declaration)) => declaration })}
       // Variable declarations to store Error events
       ..${errorEventsToVars.map({ case (_, NewDecl(_, declaration)) => declaration })}
+      ..$subscribeActions
       0
     """
     println(out)

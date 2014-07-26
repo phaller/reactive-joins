@@ -8,7 +8,8 @@ import rx.Observable
 
 object Test extends App {
 
-  val f = Observable.never[Int]()
+  // val f = Observable.never[Int]()
+  val f = Observable.just(20)
   val g = Observable.just("")
   val h = Observable.just(44)
   val k = Observable.just(45)
@@ -20,8 +21,7 @@ object Test extends App {
 
   // /* Coordinate observables with a join pattern! */
   val obs = join {
-    case o1(x) && o2.done && o3.error(e) => x
-    case o1(x) && o2(y) && o4(z) => x
+    case o2(x) && o1.done => 1
   }
   println(obs)
   scala.io.StdIn.readLine()
