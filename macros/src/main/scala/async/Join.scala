@@ -34,24 +34,6 @@ object Join {
 
   /* The macros implementing the transform */
 
-  // Code review: should we abstract over the following two?
-
-  // trait Event {
-  //   def source: Symbol
-  //   def patterns: List[Pattern]
-  // }
-
-  // val eventsToIds: Map[Event, Long]
-  // val eventsToQueues: Map[Next[Any], Queue[Any]]
-  // val eventsToBuffers: Map[Error, ThrowableBuffer]
-  // val patternsToIds: Map[Pattern, Long]
-
-  // YOU WERE (ALSO) HERE: two problems
-  // - Is it possible to have the same observable twice in the same pattern? NO? Why not?
-  // - Not giving the observables an id means that we cannot allow things like o3(x) && o3.error(x) - anyway: what does o(x) && o(x) supposed to mean anyway? (x,x)?
-  // - Do we also need to rescan after a successful match? 
-  // -> Maybe write it in the manual transform first?
-
   def join[A](pf: PartialFunction[PatternAPI[_], A]): A = macro joinImpl[A]
 
   def joinImpl[A: c.WeakTypeTag](c: blackbox.Context)(pf: c.Tree): c.Tree = {
