@@ -4,9 +4,9 @@ import Keys._
 object BuildSettings {
   val buildSettings = Defaults.defaultSettings ++ Seq(
     organization := "org.scalamacros",
-    version := "1.0.0-alpha",
-    scalaVersion := "2.11.0",
-    crossScalaVersions := Seq("2.11.0"),
+    version := "1.0.0-SNAPSHOT",
+    scalaVersion := "2.11.1",
+    crossScalaVersions := Seq("2.11.1"),
     resolvers += Resolver.sonatypeRepo("snapshots"),
     resolvers += Resolver.sonatypeRepo("releases"),
     // scalacOptions ++= Seq("")
@@ -30,14 +30,14 @@ object MyBuild extends Build {
     "macros",
     file("macros"),
     settings = buildSettings ++ Seq(
-      libraryDependencies ++= Seq("org.scala-lang" % "scala-reflect" % "2.11.0",
-        "com.netflix.rxjava" % "rxjava-scala" % "0.18.3"))
+      libraryDependencies ++= Seq("org.scala-lang" % "scala-reflect" % "2.11.1",
+        "com.netflix.rxjava" % "rxjava-scala" % "0.19.6"))
   )
 
   lazy val core: Project = Project(
     "core",
     file("core"),
     settings = buildSettings ++ Seq(
-      libraryDependencies += ("com.netflix.rxjava" % "rxjava-scala" % "0.18.3"))
+      libraryDependencies += ("com.netflix.rxjava" % "rxjava-scala" % "0.19.6"))
   ) dependsOn(macros)
 }
