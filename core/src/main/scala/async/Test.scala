@@ -16,12 +16,13 @@ object Test extends App {
 
   /* Create pattern objects from observables using the "p" method */
 
-  // // TODO: Consider Pattern { ... } instead
+  // TODO: Consider Pattern { ... } instead
   val (o1, o2, o3, o4) = (f.p, g.p, h.p, k.p)
 
-  // /* Coordinate observables with a join pattern! */
+  /* Coordinate observables with a join pattern! */
+
   val obs = join {
-    case o2(x) && o1.done => 1
+    case o1(x) && o3(y) && o4(z) => x + y
   }
   println(obs)
   scala.io.StdIn.readLine()
