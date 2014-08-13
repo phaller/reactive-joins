@@ -2,7 +2,7 @@ package scala.async.internal
 
 trait Transform {
   self: JoinMacro =>
-  def joinTransform[T: c.WeakTypeTag](pf: c.Tree): c.Tree
+  def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree
 }
 
 trait LockTransform extends Transform { 
@@ -12,6 +12,7 @@ trait LockTransform extends Transform {
   object names { 
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")
+    val promiseVal = fresh("promise")
   }
 
   def generatePatternCheck(patternId: Long, state: TermName) = (body: c.Tree, continuation: c.Tree) => q"""
@@ -22,7 +23,7 @@ trait LockTransform extends Transform {
         break
     }
    """
-  override def joinTransform[T: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+  override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
     // Collect events across all pattern, and remove duplicates.
@@ -98,10 +99,11 @@ trait LockTransform extends Transform {
             ids = Ident(nextMessage.get) :: ids
           }
           val patternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
+          val matchResult = q"${names.promiseVal}.success($patternBody)"
           checkExpression(
            q"""..${dequeueStatements.map({ case (stats, _) => stats })}
                ..${dequeueStatements.map({ case (_, stats) => stats })}""", 
-            patternBody
+            matchResult
           )
       })
       // In case a message has not lead to a pattern-match we need to store it. We do not need
@@ -137,9 +139,11 @@ trait LockTransform extends Transform {
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
+    import _root_.scala.concurrent.{Future, Promise}
 
     var ${names.stateVar} = 0L
     val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
+    val ${names.promiseVal} = Promise[${implicitly[WeakTypeTag[A]].tpe}]
 
     // Queue declarations for Next event messages
     ..${nextEventsToQueues.map({ case (event, queueName) =>
@@ -154,7 +158,7 @@ trait LockTransform extends Transform {
 
     ..${subscriptions.map(s => s(None))}
     
-    0
+    ${names.promiseVal}.future
     """
   }
 }

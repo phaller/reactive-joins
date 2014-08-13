@@ -17,6 +17,8 @@ trait Parse {
   case class Error(source: c.Symbol) extends Event
   case class Done(source: c.Symbol) extends Event
 
+  case object Empty extends PatternTree
+
   // Convenient representation of a single pattern. Do not subclass without adapting 
   // "equals" accordingly. Decorating the method with "final" causes outer-class 
   // typecheck warnings, and therefore was omitted.
@@ -55,7 +57,7 @@ trait Parse {
         case Literal(const @ Constant(_)) => (NextFilter(ref.symbol, const), Map[Event, Symbol]())
       }
       case pq"$ref" => ref match {
-        case Select(obs @ Select(_, _), TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
+        case Select(obs @ _, TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
       }
     }
   }

@@ -2,9 +2,11 @@ package scala.async
 
 import language.experimental.macros
 import scala.language.implicitConversions
+
+import scala.concurrent.{Future, Promise}
 import rx.Observable
 
-/* Enables join-syntax for Observables in partial-functions */
+// Enables join-syntax for Observables in partial-functions
 
 object Join {
 
@@ -32,6 +34,7 @@ object Join {
     def p = JoinObservable(obs)
   }
 
-  def join[A](pf: PartialFunction[JoinObservable[_], A]): A = macro internal.JoinBase.joinImpl[A]
+  def join[A](pf: PartialFunction[JoinObservable[_], A]): Future[A] = macro internal.JoinBase.joinImpl[A]
 
+  def unless[A](condition: JoinObservable[_], pf: PartialFunction[JoinObservable[_], A]): Observable[A] = ???
 }

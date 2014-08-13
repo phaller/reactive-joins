@@ -6,13 +6,10 @@ trait Util {
 
   // Returns the only type argument of a symbol.
   // For example: the only type argument of "Observable[Int]" is "Int". Calling 
-  // the method with a symbol that has more than one type argument will and 
-  // should cause a match-error.
-  def typeArgumentOf(sym: Symbol) = {
-    val NullaryMethodType(tpe) = sym.typeSignature
-    val TypeRef(_, _, obsTpe :: Nil) = tpe
-    obsTpe
-  }
+  // the method with a symbol that has no type argument will and 
+  // should cause a error.
+  def typeArgumentOf(sym: Symbol) = 
+    sym.typeSignature.asInstanceOf[TypeRefApi].args.head
 
   // Generates a TermName with a fresh name in the context
   def fresh(name: String): TermName = TermName(c.freshName(name))
