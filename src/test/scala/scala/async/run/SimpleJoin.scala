@@ -2,22 +2,32 @@ package scala.async
 
 import scala.async.Join._
 import org.junit.Test
-import rx.Observable
-import scala.concurrent.{Future, Await}
-import scala.concurrent.ExecutionContext.Implicits.global
+import rx.lang.scala.Observable
 import scala.concurrent.duration._
 
 class AsyncSpec {
   @Test
-  def `simple join`() = {
-    val f = Observable.just(1)
-    val o1 = f.p
-    val o2 = Observable.just(1).p
-
-    val obs: Future[Int] = join {
-        case o1(x) && o2(y) => x + y
+  def `binary join`() = {
+    val o1 = Observable.items(1).p
+    val o2 = Observable.items(1).p
+    
+    val obs = join {
+      case o1(x) && o2(y) => Some(x + y)
+      case o1.done && o2.done => None
     }
 
-     assert(Await.result(obs, 0 nanos) == 2)
+    assert(obs.map(x => x == 2).toBlocking.first)
   }
+
+  // @Test
+  // def  `single joinOnce next` = {
+  //   val message = "1"
+  //   val o1 = Observable.items(message).p
+
+  //   val obs = joinOnce {
+  //     case o1(x) => x
+  //   }
+
+  //   assert(obs.map(x => x == message).toBlocking.first)
+  // }
 }

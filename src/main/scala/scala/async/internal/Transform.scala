@@ -3,16 +3,32 @@ package scala.async.internal
 trait Transform {
   self: JoinMacro =>
   def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree
+  def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree 
+}
+
+trait RxJoinTransform extends Transform {
+  self: JoinMacro with Parse with RxJavaSubscribeService => 
+  import c.universe._
+
+  override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+    val patterns: Set[Pattern] = parse(pf)
+    EmptyTree
+  }
+
+  override def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+    EmptyTree
+  }
 }
 
 trait LockTransform extends Transform { 
-  self: JoinMacro with Parse with SubscribeService with Util =>
+  self: JoinMacro with Parse with RxJavaSubscribeService with Util =>
   import c.universe._
 
   object names { 
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")
-    val promiseVal = fresh("promise")
+    val subjectVal = fresh("subject")
+    val stop = fresh("stop")
   }
 
   def generatePatternCheck(patternId: Long, state: TermName) = (body: c.Tree, continuation: c.Tree) => q"""
@@ -23,7 +39,39 @@ trait LockTransform extends Transform {
         break
     }
    """
+
+  override def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+    val matchContinuation = (patternBody: c.Tree) => {
+      val beforeLockRelease = q"${names.stop} = true"
+      val afterLockRelease = q"""
+        ${names.subjectVal}.onNext($patternBody)
+        ${names.subjectVal}.onCompleted()
+      """
+      (beforeLockRelease, afterLockRelease)
+    }
+    lockTransform(pf, matchContinuation)
+  }
+
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+    val matchContinuation = (patternBody: c.Tree) => {
+      val beforeLockRelease = q"""
+         ${names.stop} = $patternBody match {
+          case Some(x) => true
+          case None => false
+        }
+      """
+      val afterLockRelease = q"""
+        $patternBody match {
+          case Some(x) => ${names.subjectVal}.onNext(x)
+          case None => ${names.subjectVal}.onCompleted()
+        }
+      """
+      (beforeLockRelease, afterLockRelease)
+    }
+    lockTransform(pf, matchContinuation)
+  }
+
+  def lockTransform[A: c.WeakTypeTag](pf: c.Tree, matchContinuation: c.Tree => (c.Tree, c.Tree)): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
     // Collect events across all pattern, and remove duplicates.
@@ -99,11 +147,13 @@ trait LockTransform extends Transform {
             ids = Ident(nextMessage.get) :: ids
           }
           val patternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
-          val matchResult = q"${names.promiseVal}.success($patternBody)"
+          // TODO: Here we need to finish in case of None, unsubscribe, and make sure that no more patterns can match
+          val (beforeLockRelease, afterLockRelease) = matchContinuation(patternBody)
           checkExpression(
            q"""..${dequeueStatements.map({ case (stats, _) => stats })}
-               ..${dequeueStatements.map({ case (_, stats) => stats })}""", 
-            matchResult
+               ..${dequeueStatements.map({ case (_, stats) => stats })}
+               ..$beforeLockRelease""", 
+            afterLockRelease
           )
       })
       // In case a message has not lead to a pattern-match we need to store it. We do not need
@@ -116,6 +166,10 @@ trait LockTransform extends Transform {
       }
       q"""
         ${names.stateLockVal}.acquire()
+        if (${names.stop}) {
+          ${names.stateLockVal}.release()
+          // unsubscribe
+        }
         val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
         breakable {
           ..$patternChecks
@@ -128,22 +182,22 @@ trait LockTransform extends Transform {
     }))
     // Generate subscriptions for the underlaying reactive system.
     val observablesToEvents = eventCallbacks.groupBy({ case (event, _) => event.source }) 
-    
     val subscriptions = observablesToEvents.map({ case (obsSym, events) => 
       val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
       val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
       generateSubscription(obsSym, next, error, done)
     })
-    
+    val resultType = implicitly[WeakTypeTag[A]].tpe
+    // Assemble all parts into the full transform
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
-    import _root_.scala.concurrent.{Future, Promise}
 
     var ${names.stateVar} = 0L
     val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
-    val ${names.promiseVal} = Promise[${implicitly[WeakTypeTag[A]].tpe}]
+    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+    val ${names.stop} = false
 
     // Queue declarations for Next event messages
     ..${nextEventsToQueues.map({ case (event, queueName) =>
@@ -156,9 +210,9 @@ trait LockTransform extends Transform {
         q"var $varName: Throwable = null"
       })}
 
-    ..${subscriptions.map(s => s(None))}
+    ..$subscriptions
     
-    ${names.promiseVal}.future
+    ${names.subjectVal}
     """
   }
 }

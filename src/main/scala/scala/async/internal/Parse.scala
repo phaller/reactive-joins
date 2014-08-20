@@ -17,8 +17,6 @@ trait Parse {
   case class Error(source: c.Symbol) extends Event
   case class Done(source: c.Symbol) extends Event
 
-  case object Empty extends PatternTree
-
   // Convenient representation of a single pattern. Do not subclass without adapting 
   // "equals" accordingly. Decorating the method with "final" causes outer-class 
   // typecheck warnings, and therefore was omitted.
