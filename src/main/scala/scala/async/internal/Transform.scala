@@ -69,7 +69,9 @@ trait LockTransform extends Transform {
     }
     lockTransform(pf, matchContinuation)
   }
-
+  // The lock-transform expects a partial-function, and a matchContinuation. The matchContiunation is the code
+  // which should be executed once a pattern-matches. It may return two trees. The first one will be executed while
+  // the global lock is held, and the second one will be executed after the lock was released.
   def lockTransform[A: c.WeakTypeTag](pf: c.Tree, matchContinuation: c.Tree => (c.Tree, c.Tree)): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
