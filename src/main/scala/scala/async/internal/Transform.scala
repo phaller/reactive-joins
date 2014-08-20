@@ -44,8 +44,7 @@ trait LockTransform extends Transform {
     val matchContinuation = (patternBody: c.Tree) => {
       val beforeLockRelease = q"${names.stop} = true"
       val afterLockRelease = q"""
-        ${names.subjectVal}.onNext($patternBody)
-        ${names.subjectVal}.onCompleted()
+        ${names.subjectVal}.onNext($patternBody); ${names.subjectVal}.onCompleted()
       """
       (beforeLockRelease, afterLockRelease)
     }
@@ -147,7 +146,6 @@ trait LockTransform extends Transform {
             ids = Ident(nextMessage.get) :: ids
           }
           val patternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
-          // TODO: Here we need to finish in case of None, unsubscribe, and make sure that no more patterns can match
           val (beforeLockRelease, afterLockRelease) = matchContinuation(patternBody)
           checkExpression(
            q"""..${dequeueStatements.map({ case (stats, _) => stats })}
@@ -167,17 +165,17 @@ trait LockTransform extends Transform {
       q"""
         ${names.stateLockVal}.acquire()
         if (${names.stop}) {
-          ${names.stateLockVal}.release()
           // unsubscribe
-        }
-        val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
-        breakable {
-          ..$patternChecks
-          // Reaching this line means that no pattern has matched, and we need to buffer the message
-          $bufferStatement
-          ${names.stateVar} = $possibleStateVal
-          ${names.stateLockVal}.release()
+        } else {
+          val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
+          breakable {
+            ..$patternChecks
+            // Reaching this line means that no pattern has matched, and we need to buffer the message
+            $bufferStatement
+            ${names.stateVar} = $possibleStateVal
           }
+        }
+        ${names.stateLockVal}.release()
       """
     }))
     // Generate subscriptions for the underlaying reactive system.
@@ -194,23 +192,28 @@ trait LockTransform extends Transform {
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
 
-    var ${names.stateVar} = 0L
-    val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
-    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
-    val ${names.stop} = false
+    try {
+      var ${names.stateVar} = 0L
+      val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
+      val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+      var ${names.stop} = false
 
-    // Queue declarations for Next event messages
-    ..${nextEventsToQueues.map({ case (event, queueName) =>
-        val messageType = typeArgumentOf(event.source)
-        q"val $queueName = mutable.Queue[$messageType]()"
-      })}
+      // Queue declarations for Next event messages
+      ..${nextEventsToQueues.map({ case (event, queueName) =>
+          val messageType = typeArgumentOf(event.source)
+          q"val $queueName = mutable.Queue[$messageType]()"
+        })}
 
-    // Variable declarations to store Error event messages (throwables)
-    ..${errorEventsToVars.map({ case (event, varName) => 
-        q"var $varName: Throwable = null"
-      })}
+      // Variable declarations to store Error event messages (throwables)
+      ..${errorEventsToVars.map({ case (event, varName) => 
+          q"var $varName: Throwable = null"
+        })}
 
-    ..$subscriptions
+      ..$subscriptions
+      
+      } catch {
+        case e: Exeception => ${names.subjectVal}.onError(e)
+      }
     
     ${names.subjectVal}
     """
