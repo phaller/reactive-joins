@@ -7,9 +7,6 @@ import scala.concurrent.{Future, Promise}
 import rx.lang.scala.Observable
 
 // Enables join-syntax for Observables in partial-functions
-
-// TODO: Generalize over Observable system
-
 object Join {
 
   class JoinObservable[A](val observable: Observable[A]) {

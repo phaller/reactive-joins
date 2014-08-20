@@ -97,6 +97,11 @@ trait LockTransform extends Transform {
       events.collect({ case event: Error => event })
       .map(event => (event, fresh("error")))
       .toMap
+
+    val observablesToSubscriptions =
+      events.groupBy(e => e.source)
+        .map({case (observable ,_) => observable -> fresh("subscription")})
+        .toMap
     // We generate a callback for every event of type Next/Error/Done. (NextFilter
     // are a special case of Next, and handled within the callbacks of the Next event
     // with the same source-symbol (i.e. the same Observable)).
@@ -162,10 +167,13 @@ trait LockTransform extends Transform {
         case error @ Error(_) => q"${errorEventsToVars.get(error).get} = ${nextMessage.get}"
         case _ => EmptyTree
       }
+      val subscription = observablesToSubscriptions.get(occuredEvent.source).get
       q"""
         ${names.stateLockVal}.acquire()
         if (${names.stop}) {
-          // unsubscribe
+          if (!$subscription.isUnsubscribed) {
+            $subscription.unsubscribe()
+          }
         } else {
           val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
           breakable {
@@ -184,7 +192,9 @@ trait LockTransform extends Transform {
       val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
       val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
-      generateSubscription(obsSym, next, error, done)
+      val subscribeVal = observablesToSubscriptions.get(obsSym).get
+      val subscription = generateSubscription(obsSym, next, error, done)
+      q"val $subscribeVal: _root_.rx.lang.scala.Subscription = $subscription"
     })
     val resultType = implicitly[WeakTypeTag[A]].tpe
     // Assemble all parts into the full transform
@@ -210,7 +220,7 @@ trait LockTransform extends Transform {
         })}
 
       ..$subscriptions
-      
+
       } catch {
         case e: Exeception => ${names.subjectVal}.onError(e)
       }
