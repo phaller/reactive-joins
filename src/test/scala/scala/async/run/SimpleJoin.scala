@@ -11,7 +11,7 @@ class AsyncSpec {
   def `unary join`() = {
     val o1 = Observable.items(1).p
     
-    val obs = join {
+    val obs: Observable[Int] = join {
       case o1(x) => Some(x + 1)
       case o1.done => None
     }
@@ -19,38 +19,38 @@ class AsyncSpec {
     assert(obs.map(x => x == 2).toBlocking.first)
   }
 
-  @Test
-  def `unary join error`() = {
-    val o1 = Observable.items(1).p
+  // @Test
+  // def `unary join error`() = {
+  //   val o1 = Observable.items(1).p
     
-    val obs = join {
-      case o1.error(e) => Some(e)
-    }
+  //   val obs = join {
+  //     case o1.error(e) => Some(e)
+  //   }
 
-    assert(obs.map(x => x == 2).toBlocking.first)
-  }
+  //   assert(obs.map(x => x == 2).toBlocking.first)
+  // }
 
-  @Test
-  def `unary join done`() = {
-    val o1 = Observable.items(1).p
+  // @Test
+  // def `unary join done`() = {
+  //   val o1 = Observable.items(1).p
     
-    val obs = join {
-      case o1.done => Some(2)
-    }
+  //   val obs = join {
+  //     case o1.done => Some(2)
+  //   }
 
-    assert(obs.map(x => x == 2).toBlocking.first)
-  }
+  //   assert(obs.map(x => x == 2).toBlocking.first)
+  // }
 
-  @Test
-  def `binary join`() = {
-    val o1 = Observable.items(1).p
-    val o2 = Observable.items(1).p
+  // @Test
+  // def `binary join`() = {
+  //   val o1 = Observable.items(1).p
+  //   val o2 = Observable.items(1).p
     
-    val obs = join {
-      case o1(x) && o2(y) => Some(x + y)
-    }
+  //   val obs = join {
+  //     case o1(x) && o2(y) => Some(x + y)
+  //   }
 
-    assert(obs.map(x => x == 2).toBlocking.first)
-  }
+  //   assert(obs.map(x => x == 2).toBlocking.first)
+  // }
 
 }

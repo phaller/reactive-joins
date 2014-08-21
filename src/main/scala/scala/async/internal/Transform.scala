@@ -53,18 +53,16 @@ trait LockTransform extends Transform {
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val matchContinuation = (patternBody: c.Tree) => {
-      val beforeLockRelease = q"""
-         ${names.stop} = $patternBody match {
-          case Some(x) => true
-          case None => false
-        }
-      """
-      val afterLockRelease = q"""
-        $patternBody match {
-          case Some(x) => ${names.subjectVal}.onNext(x)
-          case None => ${names.subjectVal}.onCompleted()
-        }
-      """
+      // We use $ref(..$args) to match Some, and $ref to match None
+      // The Option types are enforced by the join-method type
+      val beforeLockRelease = patternBody match {
+        case pq"$ref(..$_)" => q"${names.stop} = true"
+        case pq"$ref" => q"${names.stop} = false"
+      }
+      val afterLockRelease = patternBody match {
+        case pq"$ref($x)" => q"${names.subjectVal}.onNext($x)"
+        case pq"$ref" => q"${names.subjectVal}.onCompleted()"
+      }
       (beforeLockRelease, afterLockRelease)
     }
     lockTransform(pf, matchContinuation)
@@ -188,44 +186,51 @@ trait LockTransform extends Transform {
         ${names.stateLockVal}.release()
       """
     }))
-    // Generate subscriptions for the underlaying reactive system.
+    // Generate subscriptions for RxJava
     val observablesToEvents = eventCallbacks.groupBy({ case (event, _) => event.source }) 
     val subscriptions = observablesToEvents.map({ case (obsSym, events) => 
       val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
       val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
-      val subscribeVal = observablesToSubscriptions.get(obsSym).get
-      val subscription = generateSubscription(obsSym, next, error, done)
-      q"val $subscribeVal: _root_.rx.lang.scala.Subscription = $subscription"
+      val subscription = observablesToSubscriptions.get(obsSym).get
+      q"$subscription = ${generateSubscription(obsSym, next, error, done)}"
     })
+
+    val subscriptionVarDefs = observablesToEvents.map({ case (obsSym, _) => 
+      val subscription = observablesToSubscriptions.get(obsSym).get
+      q"var $subscription: _root_.rx.lang.scala.Subscription = null"
+    })
+
     val resultType = implicitly[WeakTypeTag[A]].tpe
     // Assemble all parts into the full transform
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
 
+    var ${names.stateVar} = 0L
+    val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
+    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+    var ${names.stop} = false
+
+    // Subscription declarations
+    ..$subscriptionVarDefs
+
+    // Queue declarations for Next event messages
+    ..${nextEventsToQueues.map({ case (event, queueName) =>
+        val messageType = typeArgumentOf(event.source)
+        q"val $queueName = mutable.Queue[$messageType]()"
+      })}
+
+    // Variable declarations to store Error event messages (throwables)
+    ..${errorEventsToVars.map({ case (event, varName) => 
+        q"var $varName: Throwable = null"
+      })}
+
     try {
-      var ${names.stateVar} = 0L
-      val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
-      val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
-      var ${names.stop} = false
-
-      // Queue declarations for Next event messages
-      ..${nextEventsToQueues.map({ case (event, queueName) =>
-          val messageType = typeArgumentOf(event.source)
-          q"val $queueName = mutable.Queue[$messageType]()"
-        })}
-
-      // Variable declarations to store Error event messages (throwables)
-      ..${errorEventsToVars.map({ case (event, varName) => 
-          q"var $varName: Throwable = null"
-        })}
-
       ..$subscriptions
-
-      } catch {
-        case e: Exeception => ${names.subjectVal}.onError(e)
-      }
+    } catch {
+        case e: Exception => ${names.subjectVal}.onError(e)
+    }
     
     ${names.subjectVal}
     """
