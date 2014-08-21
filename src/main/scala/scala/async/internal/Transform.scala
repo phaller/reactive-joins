@@ -56,8 +56,8 @@ trait LockTransform extends Transform {
       // We use $ref(..$args) to match Some, and $ref to match None
       // The Option types are enforced by the join-method type
       val beforeLockRelease = patternBody match {
-        case pq"$ref(..$_)" => q"${names.stop} = true"
-        case pq"$ref" => q"${names.stop} = false"
+        case pq"$ref($x)" => q"${names.stop} = false"
+        case pq"$ref" => q"${names.stop} = true"
       }
       val afterLockRelease = patternBody match {
         case pq"$ref($x)" => q"${names.subjectVal}.onNext($x)"
