@@ -12,7 +12,7 @@ object Join {
   class JoinObservable[A](val observable: Observable[A]) {
     def unapply(obj: Any): Option[A] = ???
     object error {
-      def unapply(obj: Any): Option[A] = ???
+      def unapply(obj: Any): Option[Throwable] = ???
     }
     case object done extends JoinObservable(observable)
   }
