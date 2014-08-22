@@ -24,6 +24,7 @@ trait LockTransform extends Transform {
   self: JoinMacro with Parse with RxJavaSubscribeService with Util =>
   import c.universe._
 
+  // names represents a global namespace 
   object names { 
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")

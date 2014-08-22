@@ -76,4 +76,28 @@ class AsyncSpec {
     assert(result == List(2, 1))
   }
 
+   @Test
+  def `binary and join`() = {
+    val scheduler1 = TestScheduler()
+    val scheduler2 = TestScheduler()
+
+    val input = (1 to 10).toList
+    val fn = (x: Int, y: Int) => x + y
+    val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
+
+    val o1 = Observable.items(input: _*).subscribeOn(scheduler1).p
+    val o2 = Observable.items(input: _*).subscribeOn(scheduler2).p
+    
+    val obs = join {
+      case o1(x) && o2(y) => Some(fn(x, y))
+      case o1.done && o2.done => None
+    }
+
+    scheduler2.triggerActions()
+    scheduler1.triggerActions()
+
+    val result = obs.toBlocking.toList
+    assert(result == expected)
+  }
+
 }
