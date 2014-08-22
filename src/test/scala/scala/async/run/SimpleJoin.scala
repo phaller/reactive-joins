@@ -100,4 +100,28 @@ class AsyncSpec {
     assert(result == expected)
   }
 
+  @Test
+  def `binary combination join`() = {
+    val scheduler1 = TestScheduler()
+    val scheduler2 = TestScheduler()
+    val scheduler3 = TestScheduler()
+
+    val o1 = Observable.items((), ()).subscribeOn(scheduler1).p
+    val o2 = Observable.items((), ()).subscribeOn(scheduler2).p
+    val o3 = Observable.items((), ()).subscribeOn(scheduler3).p
+
+    val obs = join {
+      case o1(x) && o2(y) => Some("first")
+      case o1(x) && o3(y) => Some("second")
+      case o1.done && o2.done && o3.done => None
+    }
+
+    scheduler2.triggerActions()
+    scheduler3.triggerActions()
+    scheduler1.triggerActions()
+
+    val result = obs.toBlocking.toList
+    assert(result == List("first", "first"))
+  }
+
 }
