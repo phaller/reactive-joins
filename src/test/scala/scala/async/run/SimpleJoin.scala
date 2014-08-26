@@ -165,10 +165,7 @@ class AsyncSpec {
       case o1(x) && o2(y) => Next(true)
       case o1(x) && o3(y) => Done
     }
-
-    // val observer = mock(classOf[rx.lang.scala.Observer[Boolean]])
-    // obs.subscribe(observer)
-
+    
     s1.onNext(1, 1)
     s1.onNext(1, 1)
     s2.onNext(2, 2)
@@ -177,16 +174,6 @@ class AsyncSpec {
     testScheduler.advanceTimeTo(1, TimeUnit.MILLISECONDS)
     testScheduler.advanceTimeTo(2, TimeUnit.MILLISECONDS)
     testScheduler.advanceTimeTo(3, TimeUnit.MILLISECONDS)
-
-    // verify(observer, never).onNext(true)
-    // verify(observer, never).onCompleted()
-    // verify(observer, never).onError(any(classOf[Throwable]))
-    
-    // testScheduler.advanceTimeTo(3, TimeUnit.MILLISECONDS)
-
-    // verify(observer, times(1)).onNext(true)
-    // verify(observer, times(1)).onCompleted()
-    // verify(observer, never).onError(any(classOf[Throwable]))
 
     assert(obs.toBlocking.toList.head)
   }
