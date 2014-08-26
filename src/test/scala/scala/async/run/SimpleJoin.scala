@@ -3,22 +3,35 @@ package scala.async
 import scala.async.Join._
 import org.junit.Test
 import rx.lang.scala.Observable
-import rx.lang.scala.schedulers.TestScheduler
+import rx.lang.scala.Observer
+import rx.lang.scala.schedulers._
+import rx.lang.scala.subjects._
 import scala.concurrent.duration._
+import scala.language.postfixOps
+import org.mockito.Mockito._
+import org.mockito.Matchers._
 
 class AsyncSpec {
 
+  val random = new scala.util.Random
+
+  def randomNonZeroEvenInteger(max: Int) = 2 * (random.nextInt(max / 2) + 1)
+
+  val newThreadScheduler = NewThreadScheduler()
+
+  val maxListSize = 50 
+
   @Test
   def `unary join`() = {
-    val input = (1 to 10).toList
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
     val fn = (x: Int) => x + 1
     val expected = input.map(fn)
 
-    val o1 = Observable.items(input:_*).p
+    val o1 = Observable.items(input:_*).observeOn(newThreadScheduler).p
     
     val obs = join {
-      case o1(x) => Some(fn(x))
-      case o1.done => None
+      case o1(x) => Next(fn(x))
+      case o1.done => Done
     }
 
     val result = obs.toBlocking.toList
@@ -28,100 +41,154 @@ class AsyncSpec {
 
   @Test
   def `unary join error`() = {
-    val input = (1 to 10).toList
-    val o1 = Observable.items(input: _*).map(_ => throw new Exception("")).p
-    
+    import scala.collection.JavaConversions._
+   
+    val size = randomNonZeroEvenInteger(2)
+    val o1 = Observable.items(1 to size: _*).map(x => 
+        if (x % size == 0) throw new Exception("") else x
+    ).observeOn(newThreadScheduler).p
+
     val obs = join {
-      case o1.error(e) => Some(e)
+      case o1.error(e) => Next(e)
     }
 
-    val result = obs.map({ case e: Exception => true }).toBlocking
-
-    assert(result.first)
+    assert(obs.toBlocking.first.isInstanceOf[Throwable])
   }
 
   @Test
   def `unary join done`() = {
-    val input = (1 to 10).toList
-    val output = 1
-    val o1 = Observable.items(input: _*).p
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+    val o1 = Observable.items(input: _*).observeOn(newThreadScheduler).p
     
     val obs = join {
-      case o1.done => Some(output)
+      case o1.done => Next(true)
     }
     
-    val result = obs.map(x => x == 1).toBlocking
-
-    assert(result.first)
+    assert(obs.toBlocking.first)
   }
+
+   @Test
+  def `unary join guard`() = {
+    val o1 = Observable.items(1, 2).p
+
+    var received = false
+    val obs = join {
+      case o1(x) if !received => 
+        received = true
+        Next(true)
+      case o1(x) if received => Done
+    }
+    
+    assert(obs.toBlocking.first)
+  }
+
 
   @Test
   def `binary or join`() = {
-    val scheduler1 = TestScheduler()
-    val scheduler2 = TestScheduler()
 
-    val o1 = Observable.items(1).subscribeOn(scheduler1).p
-    val o2 = Observable.items(2).subscribeOn(scheduler2).p
+    val size = randomNonZeroEvenInteger(maxListSize)
+    val input = List.fill(size)(())
+
+    val o1 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
     val obs = join {
-      case o1(x) => Some(x)
-      case o2(y) => Some(y)
-      case o1.done && o2.done => None
+      case o1(x) => Next(x)
+      case o2(y) => Next(y)
+      case o1.done && o2.done => Done
     }
 
-    scheduler2.triggerActions()
-    scheduler1.triggerActions()
-
     val result = obs.toBlocking.toList
-    assert(result == List(2, 1))
+    assert(result.size == (size * 2))
   }
 
    @Test
   def `binary and join`() = {
-    val scheduler1 = TestScheduler()
-    val scheduler2 = TestScheduler()
 
-    val input = (1 to 10).toList
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
     val fn = (x: Int, y: Int) => x + y
     val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
 
-    val o1 = Observable.items(input: _*).subscribeOn(scheduler1).p
-    val o2 = Observable.items(input: _*).subscribeOn(scheduler2).p
+    val o1 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
     val obs = join {
-      case o1(x) && o2(y) => Some(fn(x, y))
-      case o1.done && o2.done => None
+      case o1(x) && o2(y) => Next(fn(x, y))
+      case o1.done && o2.done => Done
     }
-
-    scheduler2.triggerActions()
-    scheduler1.triggerActions()
 
     val result = obs.toBlocking.toList
     assert(result == expected)
   }
 
-  @Test
-  def `binary combination join`() = {
-    val scheduler1 = TestScheduler()
-    val scheduler2 = TestScheduler()
-    val scheduler3 = TestScheduler()
+    @Test
+  def `binary and-or join`() = {
 
-    val o1 = Observable.items((), ()).subscribeOn(scheduler1).p
-    val o2 = Observable.items((), ()).subscribeOn(scheduler2).p
-    val o3 = Observable.items((), ()).subscribeOn(scheduler3).p
+    val full = randomNonZeroEvenInteger(maxListSize)
+    val half = full / 2
+
+    val o1 = Observable.items(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.items(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o3 = Observable.items(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
     val obs = join {
-      case o1(x) && o2(y) => Some("first")
-      case o1(x) && o3(y) => Some("second")
-      case o1.done && o2.done && o3.done => None
+      case o1(x) && o2(y) => Next(true)
+      case o1(x) && o3(y) => Next(false)
+      case o1.done && o2.done && o3.done => Done
     }
 
-    scheduler2.triggerActions()
-    scheduler3.triggerActions()
-    scheduler1.triggerActions()
-
     val result = obs.toBlocking.toList
-    assert(result == List("first", "first"))
+    assert(result.filter(identity).size == half)
+    assert(result.filter(x => !x).size == half)
+  }
+
+  @Test
+  def `join respects pattern order`() = {
+    import rx.lang.scala.JavaConversions._
+    import scala.collection.JavaConversions._    
+    import java.util.concurrent.TimeUnit
+    // We use some RxJava (*not* RxScala) classes
+    import rx.subjects.TestSubject
+    import rx.schedulers.Schedulers
+
+    val testScheduler = Schedulers.test() // RxJava TestScheduler
+
+    val s1 = TestSubject.create[Int](testScheduler) // RxJava TestSubject
+    val s2 = TestSubject.create[Int](testScheduler)
+    val s3 = TestSubject.create[Int](testScheduler)
+
+    val o1 = toScalaObservable[Int](s1).observeOn(testScheduler).p
+    val o2 = toScalaObservable[Int](s2).observeOn(testScheduler).p
+    val o3 = toScalaObservable[Int](s3).observeOn(testScheduler).p
+
+    val obs = join {
+      case o1(x) && o2(y) => Next(true)
+      case o1(x) && o3(y) => Done
+    }
+
+    // val observer = mock(classOf[rx.lang.scala.Observer[Boolean]])
+    // obs.subscribe(observer)
+
+    s1.onNext(1, 1)
+    s1.onNext(1, 1)
+    s2.onNext(2, 2)
+    s3.onNext(3, 3)
+
+    testScheduler.advanceTimeTo(1, TimeUnit.MILLISECONDS)
+    testScheduler.advanceTimeTo(2, TimeUnit.MILLISECONDS)
+    testScheduler.advanceTimeTo(3, TimeUnit.MILLISECONDS)
+
+    // verify(observer, never).onNext(true)
+    // verify(observer, never).onCompleted()
+    // verify(observer, never).onError(any(classOf[Throwable]))
+    
+    // testScheduler.advanceTimeTo(3, TimeUnit.MILLISECONDS)
+
+    // verify(observer, times(1)).onNext(true)
+    // verify(observer, times(1)).onCompleted()
+    // verify(observer, never).onError(any(classOf[Throwable]))
+
+    assert(obs.toBlocking.toList.head)
   }
 
 }

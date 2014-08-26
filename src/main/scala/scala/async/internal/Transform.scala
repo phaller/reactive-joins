@@ -3,7 +3,6 @@ package scala.async.internal
 trait Transform {
   self: JoinMacro =>
   def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree
-  def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree 
 }
 
 trait RxJoinTransform extends Transform {
@@ -12,10 +11,6 @@ trait RxJoinTransform extends Transform {
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
-    EmptyTree
-  }
-
-  override def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     EmptyTree
   }
 }
@@ -32,46 +27,26 @@ trait LockTransform extends Transform {
     val stop = fresh("stop")
   }
 
-  def generatePatternCheck(patternId: Long, state: TermName) = (body: c.Tree, continuation: c.Tree) => q"""
-    if ((~$state & $patternId) == 0) {
+  def generatePatternCheck(patternId: Long, state: TermName, patternGuard: c.Tree) = (body: c.Tree, continuation: c.Tree) => {
+    val checkPatternTree = q"(~$state & $patternId) == 0"
+    val matchExpression = patternGuard match {
+      case EmptyTree => checkPatternTree
+      case guardTree => q"(($checkPatternTree) && $guardTree)"
+    }
+    q"""
+    debug("Checking pattern: " + $patternId)
+    if ($matchExpression) {
+        debug("Pattern matched!")
         ..$body
+        debug("Releasing lock")
         ${names.stateLockVal}.release()
         ..$continuation
         break
     }
    """
-
-  override def joinOnceTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
-    val matchContinuation = (patternBody: c.Tree) => {
-      val beforeLockRelease = q"${names.stop} = true"
-      val afterLockRelease = q"""
-        ${names.subjectVal}.onNext($patternBody); ${names.subjectVal}.onCompleted()
-      """
-      (beforeLockRelease, afterLockRelease)
-    }
-    lockTransform(pf, matchContinuation)
-  }
+ }
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
-    val matchContinuation = (patternBody: c.Tree) => {
-      // We use $ref(..$args) to match Some, and $ref to match None
-      // The Option types are enforced by the join-method type
-      val beforeLockRelease = patternBody match {
-        case pq"$ref($x)" => q"${names.stop} = false"
-        case pq"$ref" => q"${names.stop} = true"
-      }
-      val afterLockRelease = patternBody match {
-        case pq"$ref($x)" => q"${names.subjectVal}.onNext($x)"
-        case pq"$ref" => q"${names.subjectVal}.onCompleted()"
-      }
-      (beforeLockRelease, afterLockRelease)
-    }
-    lockTransform(pf, matchContinuation)
-  }
-  // The lock-transform expects a partial-function, and a matchContinuation. The matchContiunation is the code
-  // which should be executed once a pattern-matches. It may return two trees. The first one will be executed while
-  // the global lock is held, and the second one will be executed after the lock was released.
-  def lockTransform[A: c.WeakTypeTag](pf: c.Tree, matchContinuation: c.Tree => (c.Tree, c.Tree)): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
     // Collect events across all pattern, and remove duplicates.
@@ -113,7 +88,7 @@ trait LockTransform extends Transform {
         myPatterns.toList.map(myPattern => {
           // Generate the if-expression which checks whether a pattern has matched. We have to later provide 
           // the "checkExpression" with a body, and a continuation.
-          val checkExpression = generatePatternCheck(patternsToIds.get(myPattern).get, possibleStateVal)
+          val checkExpression = generatePatternCheck(patternsToIds.get(myPattern).get, possibleStateVal, myPattern.guardTree)
           // In case of a successful pattern-match, we would like to execute the pattern-body. For this to
           // succeed we need to replace the occurences of pattern-bound variables in the pattern-body with
           // the actual message content. For example if the join-pattern looks like this: "case O1(x) => x + 1", 
@@ -151,13 +126,33 @@ trait LockTransform extends Transform {
             symbolsToReplace = myPattern.bindings.get(occuredEvent).get :: symbolsToReplace
             ids = Ident(nextMessage.get) :: ids
           }
-          val patternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
-          val (beforeLockRelease, afterLockRelease) = matchContinuation(patternBody)
+          val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
+
+          def generateReturnExpression(patternBody: c.Tree) = patternBody match {
+            case pq"$ref($x)" => q"""
+              printQueues()
+              try {
+                ${names.subjectVal}.onNext($x)
+              } catch {
+                case e: Throwable => ${names.subjectVal}.onError(e)
+              }"""
+            case pq"$ref" => q"""
+              ${names.stop} = true
+              ${names.subjectVal}.onCompleted()
+              unsubscribe()
+              """
+          }
+
+          val patternBody = rawPatternBody match {
+            case Block(stats, expr) => q"..$stats; ..${generateReturnExpression(expr)}"
+            case _ => generateReturnExpression(rawPatternBody)
+          }
+
           checkExpression(
            q"""..${dequeueStatements.map({ case (stats, _) => stats })}
                ..${dequeueStatements.map({ case (_, stats) => stats })}
-               ..$beforeLockRelease""", 
-            afterLockRelease
+               ..$patternBody""", 
+            EmptyTree
           )
       })
       // In case a message has not lead to a pattern-match we need to store it. We do not need
@@ -168,23 +163,28 @@ trait LockTransform extends Transform {
         case error @ Error(_) => q"${errorEventsToVars.get(error).get} = ${nextMessage.get}"
         case _ => EmptyTree
       }
-      val subscription = observablesToSubscriptions.get(occuredEvent.source).get
       q"""
+        debug("Waiting for lock")
         ${names.stateLockVal}.acquire()
+        debug("Got lock")
         if (${names.stop}) {
-          if (!$subscription.isUnsubscribed) {
-            $subscription.unsubscribe()
-          }
+          debug("Aborting execution")
+          debug("Releasing Lock")
+          ${names.stateLockVal}.release()
         } else {
           val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
           breakable {
+            debug("Checking Patterns")
             ..$patternChecks
+            debug("No pattern matched. Buffering.")
             // Reaching this line means that no pattern has matched, and we need to buffer the message
             $bufferStatement
             ${names.stateVar} = $possibleStateVal
+            debug("Releasing Lock")
+            printQueues()
+            ${names.stateLockVal}.release()
           }
         }
-        ${names.stateLockVal}.release()
       """
     }))
     // Generate subscriptions for RxJava
@@ -225,14 +225,26 @@ trait LockTransform extends Transform {
     // Variable declarations to store Error event messages (throwables)
     ..${errorEventsToVars.map({ case (event, varName) => 
         q"var $varName: Throwable = null"
-      })}
+    })}
 
-    try {
-      ..$subscriptions
-    } catch {
-        case e: Exception => ${names.subjectVal}.onError(e)
+    def debug(msg: String) =  {
+      println("[" + Thread.currentThread.getId +"]: " + msg)
     }
-    
+
+    // Output only makes sense if called while holding the lock!
+    def printQueues() = {
+      ..${nextEventsToQueues.map({ case (_, queueName) =>
+        q"println($queueName)"
+      })}
+    }
+
+    ..$subscriptions
+
+    def unsubscribe() = {..${observablesToSubscriptions.map({ case (_, s) => q"""
+        debug("Unsubscribing")
+        $s.unsubscribe()
+    """})}}
+
     ${names.subjectVal}
     """
   }

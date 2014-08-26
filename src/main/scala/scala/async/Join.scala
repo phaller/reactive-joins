@@ -33,8 +33,12 @@ object Join {
     def p = JoinObservable(obs)
   }
 
-  def joinOnce[A](pf: PartialFunction[JoinObservable[_], A]): Observable[A] = macro internal.JoinBase.joinOnceImpl[A]
+  sealed trait JoinReturn[+A]
+  case class Next[A](a: A) extends JoinReturn[A]
+  case object Done extends JoinReturn[Nothing]
+  case object Pass extends JoinReturn[Nothing]
 
-  def join[A](pf: PartialFunction[JoinObservable[_], Option[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
+
+  def join[A](pf: PartialFunction[JoinObservable[_], JoinReturn[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
   
 }

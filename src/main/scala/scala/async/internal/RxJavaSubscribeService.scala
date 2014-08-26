@@ -11,7 +11,7 @@ trait RxJavaSubscribeService {
       case Some(callback) => 
         val obsTpe = typeArgumentOf(joinObservable)
         val nextMessage = fresh("nextMessage")
-        q"($nextMessage: $obsTpe) => ${callback(Some(nextMessage))}"
+        q"($nextMessage: $obsTpe) => { debug(${"Received "} + $nextMessage.toString()); ${callback(Some(nextMessage))}}"
       case None => q"(_: Any) => ()"
     }
     val error = onError match {
