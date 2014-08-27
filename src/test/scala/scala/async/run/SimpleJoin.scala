@@ -80,6 +80,41 @@ class AsyncSpec {
     assert(obs.toBlocking.first)
   }
 
+  @Test
+  def `JoinResult implemented correctly`() = {
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+    val o1 = Observable.items(input: _*).p
+
+    var received = false
+    val obs = join {
+      case o1(x) if !received => 
+        received = true
+        Pass
+      case o1(x) if received => Next(x)
+      case o1.done => Done
+    }
+    
+    assert(obs.toBlocking.toList == input.tail)
+  }
+
+  @Test
+  def `JoinResult implicit Pass works`() = {
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+    val o1 = Observable.items(input: _*).p
+
+    var received = false
+    val obs = join {
+      case o1(x) if !received => 
+        received = true
+        println("Whatever")
+      case o1(x) if received => Next(x)
+      case o1.done => Done
+    }
+    
+    assert(obs.toBlocking.toList == input.tail)
+  }
+
+
  // TODO: Find a way to test this. Try Mockito again?
  // @Test
  //  def `unary join throw`() = {

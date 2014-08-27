@@ -46,6 +46,27 @@ trait LockTransform extends Transform {
    """
  }
 
+  def generateReturnExpression(patternBody: c.Tree): c.Tree = patternBody match {
+    case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), nextExpr) => q"""
+      printQueues()
+      try {
+        ${names.subjectVal}.onNext(${nextExpr.head})
+      } catch {
+        case e: Throwable => ${names.subjectVal}.onError(e)
+      }"""
+    case Select(_, TermName("Done")) => q"""
+      ${names.stop} = true
+      ${names.subjectVal}.onCompleted()
+      unsubscribe()
+      """
+    case Select(_, TermName("Pass")) => EmptyTree 
+    case Apply(Select(_, TermName("unitToPass")), stats) => q"..$stats"
+    // ^ matches the implicit conversion from Unit to Pass
+    case other =>  
+      c.error(c.enclosingPosition, s"Join pattern has to return a value of type JoinReturn: Next(...), Done, or Pass. Got: $other")
+      EmptyTree
+  }
+
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
@@ -128,23 +149,8 @@ trait LockTransform extends Transform {
           }
           val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
 
-          def generateReturnExpression(patternBody: c.Tree) = patternBody match {
-            case pq"$ref($x)" => q"""
-              printQueues()
-              try {
-                ${names.subjectVal}.onNext($x)
-              } catch {
-                case e: Throwable => ${names.subjectVal}.onError(e)
-              }"""
-            case pq"$ref" => q"""
-              ${names.stop} = true
-              ${names.subjectVal}.onCompleted()
-              unsubscribe()
-              """
-          }
-
           val patternBody = rawPatternBody match {
-            case Block(stats, expr) => q"..$stats; ..${generateReturnExpression(expr)}"
+            case Block(stats, lastExpr) => q"..$stats; ..${generateReturnExpression(lastExpr)}"
             case _ => generateReturnExpression(rawPatternBody)
           }
 
