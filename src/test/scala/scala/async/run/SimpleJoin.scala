@@ -104,9 +104,7 @@ class AsyncSpec {
 
     var received = false
     val obs = join {
-      case o1(x) if !received => 
-        received = true
-        println("Whatever")
+      case o1(x) if !received => received = true
       case o1(x) if received => Next(x)
       case o1.done => Done
     }
