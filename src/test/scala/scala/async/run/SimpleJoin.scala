@@ -172,14 +172,13 @@ class AsyncSpec {
       case o1(x) && o3(y) => Done
     }
 
-    s2.onNext(2, 2)
-    s3.onNext(3, 3)
-    s1.onNext(1, 1)
-    s1.onNext(1, 1)
+    s2.onNext(2, 1)
+    s3.onNext(3, 1)
+    s1.onNext(1, 2)
+    s1.onNext(1, 2)
 
     testScheduler.advanceTimeTo(1, TimeUnit.MILLISECONDS)
     testScheduler.advanceTimeTo(2, TimeUnit.MILLISECONDS)
-    testScheduler.advanceTimeTo(3, TimeUnit.MILLISECONDS)
 
     assert(obs.toBlocking.toList.head)
   }
