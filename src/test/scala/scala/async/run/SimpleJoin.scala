@@ -8,8 +8,6 @@ import rx.lang.scala.schedulers._
 import rx.lang.scala.subjects._
 import scala.concurrent.duration._
 import scala.language.postfixOps
-import org.mockito.Mockito._
-import org.mockito.Matchers._
 
 class AsyncSpec {
 
@@ -82,10 +80,20 @@ class AsyncSpec {
     assert(obs.toBlocking.first)
   }
 
+ // TODO: Find a way to test this. Try Mockito again?
+ // @Test
+ //  def `unary join throw`() = {
+ //    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+ //    val o1 = Observable.items(input: _*).observeOn(newThreadScheduler).p
+    
+ //    val obs = join {
+ //      case o1.done => throw new Exception("")
+ //    }
+    
+ //  }
 
   @Test
   def `binary or join`() = {
-
     val size = randomNonZeroEvenInteger(maxListSize)
     val input = List.fill(size)(())
 
@@ -104,7 +112,6 @@ class AsyncSpec {
 
    @Test
   def `binary and join`() = {
-
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
     val fn = (x: Int, y: Int) => x + y
     val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
@@ -123,7 +130,6 @@ class AsyncSpec {
 
     @Test
   def `binary and-or join`() = {
-
     val full = randomNonZeroEvenInteger(maxListSize)
     val half = full / 2
 
@@ -165,11 +171,11 @@ class AsyncSpec {
       case o1(x) && o2(y) => Next(true)
       case o1(x) && o3(y) => Done
     }
-    
-    s1.onNext(1, 1)
-    s1.onNext(1, 1)
+
     s2.onNext(2, 2)
     s3.onNext(3, 3)
+    s1.onNext(1, 1)
+    s1.onNext(1, 1)
 
     testScheduler.advanceTimeTo(1, TimeUnit.MILLISECONDS)
     testScheduler.advanceTimeTo(2, TimeUnit.MILLISECONDS)
