@@ -3,6 +3,7 @@ package scala.async.internal
 trait Util {
   self: JoinMacro =>
   import c.universe._
+  import scala.async.internal.Debug
 
   // Returns the only type argument of a symbol.
   // For example: the only type argument of "Observable[Int]" is "Int". Calling 
@@ -27,4 +28,7 @@ trait Util {
     val transformedBody = substituter.transform(block.asInstanceOf[symtable.Tree])
     c.untypecheck(transformedBody.asInstanceOf[c.universe.Tree]) 
   }
+
+  def insertIfTracing(s: => Tree): c.Tree =  if (Debug.trace) s else EmptyTree
+
 }

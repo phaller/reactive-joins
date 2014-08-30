@@ -34,11 +34,13 @@ trait LockTransform extends Transform {
       case guardTree => q"(($checkPatternTree) && $guardTree)"
     }
     q"""
-    debug("Checking pattern: " + $patternId)
+    ${insertIfTracing(q"""
+      debug("Checking pattern: " + $patternId)
+      """)}
     if ($matchExpression) {
-        debug("Pattern matched!")
+        ${insertIfTracing(q"""debug("Pattern matched!")""")}
         ..$body
-        debug("Releasing lock")
+        ${insertIfTracing(q"""debug("Releasing lock")""")}
         ${names.stateLockVal}.release()
         ..$continuation
         break
@@ -48,7 +50,7 @@ trait LockTransform extends Transform {
 
   def generateReturnExpression(patternBody: c.Tree): c.Tree = patternBody match {
     case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), nextExpr) => q"""
-      printQueues()
+      ${insertIfTracing(q"printQueues()")}
       try {
         ${names.subjectVal}.onNext(${nextExpr.head})
       } catch {
@@ -170,24 +172,24 @@ trait LockTransform extends Transform {
         case _ => EmptyTree
       }
       q"""
-        debug("Waiting for lock")
+        ${insertIfTracing(q"""debug("Waiting for lock")""")}
         ${names.stateLockVal}.acquire()
-        debug("Got lock")
+        ${insertIfTracing(q"""debug("Got lock")""")}
         if (${names.stop}) {
-          debug("Aborting execution")
-          debug("Releasing Lock")
+          ${insertIfTracing(q"""debug("Aborting execution")""")}
+          ${insertIfTracing(q"""debug("Releasing Lock")""")}
           ${names.stateLockVal}.release()
         } else {
           val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
           breakable {
-            debug("Checking Patterns")
+            ${insertIfTracing(q"""debug("Checking Patterns")""")}
             ..$patternChecks
-            debug("No pattern matched. Buffering.")
+            ${insertIfTracing(q"""debug("No pattern matched. Buffering.")""")}
             // Reaching this line means that no pattern has matched, and we need to buffer the message
             $bufferStatement
             ${names.stateVar} = $possibleStateVal
-            debug("Releasing Lock")
-            printQueues()
+            ${insertIfTracing(q"""debug("Releasing Lock")""")}
+            ${insertIfTracing(q"printQueues()")}
             ${names.stateLockVal}.release()
           }
         }
@@ -210,6 +212,7 @@ trait LockTransform extends Transform {
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
     // Assemble all parts into the full transform
+
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
@@ -233,21 +236,21 @@ trait LockTransform extends Transform {
         q"var $varName: Throwable = null"
     })}
 
-    def debug(msg: String) =  {
-      println("[" + Thread.currentThread.getId +"]: " + msg)
-    }
-
-    // Output only makes sense if called while holding the lock!
-    def printQueues() = {
-      ..${nextEventsToQueues.map({ case (_, queueName) =>
-        q"println($queueName)"
-      })}
-    }
-
     ..$subscriptions
 
+    ${insertIfTracing(q"""
+    def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
+    """)}
+    
+    ${insertIfTracing(q"""
+      def printQueues() = {
+        ..${nextEventsToQueues.map({ case (_, queueName) =>
+          q"""println("[join] " + $queueName)"""
+      })}
+    }""")}
+
     def unsubscribe() = {..${observablesToSubscriptions.map({ case (_, s) => q"""
-        debug("Unsubscribing")
+        ${insertIfTracing(q"""debug("Unsubscribing")""")}
         $s.unsubscribe()
     """})}}
 
