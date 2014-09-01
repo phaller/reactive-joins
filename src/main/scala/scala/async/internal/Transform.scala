@@ -212,8 +212,8 @@ trait LockTransform extends Transform {
     })
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
+    
     // Assemble all parts into the full transform
-
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable

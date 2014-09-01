@@ -10,8 +10,8 @@ import rx.lang.scala.Observable
 
 // Be very careful when changing any names in this object: you'll need 
 // to refactor many pattern-matches where the distinct types are recognized by
-// matching against hard-coded TermNames. For example: Done is could
-// be matched against by with "Select(_, TermName("Done"))".
+// matching against hard-coded TermNames. For example: Done would
+// be matched against using "Select(_, TermName("Done"))".
 object Join {
 
   class JoinObservable[A](val observable: Observable[A]) {
