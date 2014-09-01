@@ -96,7 +96,8 @@ trait LockTransform extends Transform {
       events.collect({ case event: Error => event })
       .map(event => (event, fresh("error")))
       .toMap
-
+    // Every observable is subscribed to once. This results in a subscription later used
+    // to unsubscribe, and free resources. We therefore need to store that subscription.
     val observablesToSubscriptions =
       events.groupBy(e => e.source)
         .map({case (observable ,_) => observable -> fresh("subscription")})
