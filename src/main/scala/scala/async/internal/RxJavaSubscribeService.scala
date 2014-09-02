@@ -17,6 +17,8 @@ trait RxJavaSubscribeService {
       case Some(callback) => 
         q"""${insertIfTracing(q"""debug("Received: " + $nextMessage.toString())""")}
             ${callback(Some(nextMessage))}"""
+      // We need to request more, because if there is a join waiting just for onDone, or onNext
+      // it would block forever if we do not keep to consume next events.
       case None => q"request(1)"
     }
     val overrideNext = q"override def onNext($nextMessage: $obsTpe): Unit = $next"

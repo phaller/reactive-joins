@@ -271,22 +271,20 @@ trait LockTransform extends Transform {
     })}
 
     ..$subscriptions
-
-    ${insertIfTracing(q"""
-    def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
-    """)}
-    
-    ${insertIfTracing(q"""
-      def printQueues() = {
-        ..${nextEventsToQueues.map({ case (_, queueName) =>
-          q"""println("[join] " + $queueName)"""
-      })}
-    }""")}
-
+  
     def unsubscribe() = {..${observablesToSubscriptions.map({ case (_, s) => q"""
         ${insertIfTracing(q"""debug("Unsubscribing")""")}
         $s.unsubscribe()
     """})}}
+
+    ${insertIfTracing(q"""
+    def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
+    def printQueues() = {
+        ..${nextEventsToQueues.map({ case (_, queueName) =>
+          q"""println("[join] " + $queueName)"""
+      })}
+    }
+    """)}
 
     ${names.subjectVal}
     """
