@@ -6,11 +6,9 @@ version := "0.0.1-SNAPSHOT"
 
 libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value % "provided"
 
-libraryDependencies += "com.netflix.rxjava" % "rxjava-scala" % "0.19.6"
+libraryDependencies += "com.netflix.rxjava" % "rxjava-scala" % "0.20.2"
 
 libraryDependencies += "com.novocode" % "junit-interface" % "0.10" % "test"
-
-libraryDependencies += "org.mockito" % "mockito-all" % "1.9.5" % "test"
 
 testOptions += Tests.Argument(TestFrameworks.JUnit, "+q", "-v", "-s")
 

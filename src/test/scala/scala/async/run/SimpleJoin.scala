@@ -20,12 +20,12 @@ class AsyncSpec {
   val maxListSize = 50 
 
   @Test
-  def `unary join`() = {
+  def unaryJoin() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
     val fn = (x: Int) => x + 1
     val expected = input.map(fn)
 
-    val o1 = Observable.items(input:_*).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input:_*).observeOn(newThreadScheduler).p
     
     val obs = join {
       case o1(x) => Next(fn(x))
@@ -38,11 +38,11 @@ class AsyncSpec {
   }
 
   @Test
-  def `unary join error`() = {
+  def unaryJoinError() = {
     import scala.collection.JavaConversions._
    
     val size = randomNonZeroEvenInteger(2)
-    val o1 = Observable.items(1 to size: _*).map(x => 
+    val o1 = Observable.just(1 to size: _*).map(x => 
         if (x % size == 0) throw new Exception("") else x
     ).observeOn(newThreadScheduler).p
 
@@ -54,9 +54,9 @@ class AsyncSpec {
   }
 
   @Test
-  def `unary join done`() = {
+  def unaryJoinDone() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.items(input: _*).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
     
     val obs = join {
       case o1.done => Next(true)
@@ -66,8 +66,8 @@ class AsyncSpec {
   }
 
    @Test
-  def `unary join guard`() = {
-    val o1 = Observable.items(1, 2).p
+  def unaryJoinGuard() = {
+    val o1 = Observable.just(1, 2).p
 
     var received = false
     val obs = join {
@@ -81,9 +81,9 @@ class AsyncSpec {
   }
 
   @Test
-  def `JoinResult implemented correctly`() = {
+  def joinResultImplementedCorrectly() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.items(input: _*).p
+    val o1 = Observable.just(input: _*).p
 
     var received = false
     val obs = join {
@@ -98,9 +98,9 @@ class AsyncSpec {
   }
 
   @Test
-  def `JoinResult implicit Pass works`() = {
+  def joinResultImplicitPassWorks() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.items(input: _*).p
+    val o1 = Observable.just(input: _*).p
 
     var received = false
     val obs = join {
@@ -126,12 +126,12 @@ class AsyncSpec {
  //  }
 
   @Test
-  def `binary or join`() = {
+  def binaryOrJoin() = {
     val size = randomNonZeroEvenInteger(maxListSize)
     val input = List.fill(size)(())
 
-    val o1 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
     val obs = join {
       case o1(x) => Next(x)
@@ -144,13 +144,13 @@ class AsyncSpec {
   }
 
    @Test
-  def `binary and join`() = {
+  def binaryAndJoin() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
     val fn = (x: Int, y: Int) => x + y
     val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
 
-    val o1 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.items(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
     val obs = join {
       case o1(x) && o2(y) => Next(fn(x, y))
@@ -162,13 +162,13 @@ class AsyncSpec {
   }
 
     @Test
-  def `binary and-or join`() = {
+  def binaryAndOrJoin() = {
     val full = randomNonZeroEvenInteger(maxListSize)
     val half = full / 2
 
-    val o1 = Observable.items(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.items(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o3 = Observable.items(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o3 = Observable.just(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
     val obs = join {
       case o1(x) && o2(y) => Next(true)
@@ -182,7 +182,7 @@ class AsyncSpec {
   }
 
   @Test
-  def `join respects pattern order`() = {
+  def joinRespectsPatternOrder() = {
     import rx.lang.scala.JavaConversions._
     import scala.collection.JavaConversions._    
     import java.util.concurrent.TimeUnit
