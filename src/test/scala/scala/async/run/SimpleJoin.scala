@@ -216,4 +216,27 @@ class AsyncSpec {
     assert(obs.toBlocking.toList.head)
   }
 
+  @Test
+  def coVariantJoinReturn() = {
+    sealed trait Animal
+    case class Dog(name: String) extends Animal
+    case class Chicken(name: String) extends Animal
+
+    val numberOfEvents = randomNonZeroEvenInteger(maxListSize)
+
+    val o1 = Observable.just(List.fill(numberOfEvents)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(List.fill(numberOfEvents)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+
+    val obs = join {
+      case o1(x) => Next(Dog("Lassie"))
+      case o2(x) => Next(Chicken("Pgack"))
+      case o1.done && o2.done => Done
+    }
+
+    val result = obs.toBlocking.toList
+    assert(result.count(_.isInstanceOf[Dog]) == numberOfEvents)
+    assert(result.count(_.isInstanceOf[Chicken]) == numberOfEvents)
+    assert(result.count(_.isInstanceOf[Animal]) == 2 * numberOfEvents)
+  }
+
 }
