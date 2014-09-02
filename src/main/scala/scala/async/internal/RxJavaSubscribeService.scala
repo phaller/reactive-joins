@@ -7,8 +7,6 @@ trait RxJavaSubscribeService {
   type EventCallback = Option[Option[TermName] => c.Tree]
 
   def generateSubscription(joinObservable: Symbol, subscriber: TermName, onNext: EventCallback, onError: EventCallback, onDone: EventCallback): c.Tree = {
-    // TODO: Configurable!
-    val bufferSize = q"1"
     val obsTpe = typeArgumentOf(joinObservable)
     val nextMessage = fresh("nextMessage")
     val errorMessage = fresh("errorMessage")
@@ -17,9 +15,7 @@ trait RxJavaSubscribeService {
       case Some(callback) => 
         q"""${insertIfTracing(q"""debug("Received: " + $nextMessage.toString())""")}
             ${callback(Some(nextMessage))}"""
-      // We need to request more, because if there is a join waiting just for onDone, or onNext
-      // it would block forever if we do not keep to consume next events.
-      case None => q"request(1)"
+      case None => q"()"
     }
     val overrideNext = q"override def onNext($nextMessage: $obsTpe): Unit = $next"
     // onError
@@ -34,9 +30,15 @@ trait RxJavaSubscribeService {
       case None => q"()"
     }
     val overrideDone = q"override def onCompleted(): Unit = $done"
+    // In case we only have subscriptions do onError, or onDone then we can
+    // request a maximum number of events since they both only occur once.
+    // If we do not do this than a join wainting only for onDone, or onError would be
+    // stuck unless the onDone, or onError event is the only, and first event to 
+    // be emitted.
+    val initialRequest = if (onNext.nonEmpty) 1 else Int.MaxValue
     q"""
     $subscriber = new _root_.rx.lang.scala.Subscriber[$obsTpe] with Requestable {
-        override def onStart(): Unit = request($bufferSize)
+        override def onStart(): Unit = request($initialRequest)
         $overrideNext
         $overrideError
         $overrideDone
