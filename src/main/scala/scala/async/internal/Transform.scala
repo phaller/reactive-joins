@@ -277,7 +277,7 @@ trait LockTransform extends Transform {
         $s.unsubscribe()
     """})}}
 
-    ${insertIfTracing(q"""
+    ..${insertIfTracing(q"""
     def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
     def printQueues() = {
         ..${nextEventsToQueues.map({ case (_, queueName) =>
