@@ -38,13 +38,23 @@ object Join {
     def p = JoinObservable(obs)
   }
 
+  trait Requestable { 
+    def requestMore(n: Long): Unit
+  }
+
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]
   case object Pass extends JoinReturn[Nothing]
 
+  case class BufferSize(size: Long) {
+    require(size > 0, "Buffer size needs to be at least 1")
+  }
+  object BufferSize {
+    implicit val defaultBufferSize = BufferSize(Long.MaxValue)
+  }
+
   implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass
 
   def join[A](pf: PartialFunction[JoinObservable[_], JoinReturn[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
-  
 }

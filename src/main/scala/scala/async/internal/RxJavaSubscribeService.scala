@@ -6,7 +6,7 @@ trait RxJavaSubscribeService {
 
   type EventCallback = Option[Option[TermName] => c.Tree]
 
-  def generateSubscription(joinObservable: Symbol, subscriber: TermName, onNext: EventCallback, onError: EventCallback, onDone: EventCallback): c.Tree = {
+  def generateSubscription(joinObservable: Symbol, subscriber: TermName, onNext: EventCallback, onError: EventCallback, onDone: EventCallback, initialRequest: c.Tree): c.Tree = {
     val obsTpe = typeArgumentOf(joinObservable)
     val nextMessage = fresh("nextMessage")
     val errorMessage = fresh("errorMessage")
@@ -35,14 +35,13 @@ trait RxJavaSubscribeService {
     // If we do not do this than a join wainting only for onDone, or onError would be
     // stuck unless the onDone, or onError event is the only, and first event to 
     // be emitted.
-    val initialRequest = if (onNext.nonEmpty) 1 else Int.MaxValue
     q"""
     $subscriber = new _root_.rx.lang.scala.Subscriber[$obsTpe] with Requestable {
         override def onStart(): Unit = request($initialRequest)
         $overrideNext
         $overrideError
         $overrideDone
-        def requestMore(n: Int) = request(n)
+        def requestMore(n: Long) = request(n)
     }
     $joinObservable.observable.subscribe($subscriber)
     """ 

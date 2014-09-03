@@ -227,7 +227,7 @@ class AsyncSpec {
     val o1 = Observable.just(List.fill(numberOfEvents)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     val o2 = Observable.just(List.fill(numberOfEvents)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
-    val obs = join {
+    val obs: Observable[Animal] = join {
       case o1(x) => Next(Dog("Lassie"))
       case o2(x) => Next(Chicken("Pgack"))
       case o1.done && o2.done => Done
@@ -239,4 +239,21 @@ class AsyncSpec {
     assert(result.count(_.isInstanceOf[Animal]) == 2 * numberOfEvents)
   }
 
+  @Test
+  def setBufferSizeTest() = {
+    val size = randomNonZeroEvenInteger(maxListSize)
+    val input = List.fill(size)(randomNonZeroEvenInteger(maxListSize))
+
+    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+
+    implicit val bufferSize = BufferSize(1)
+    val obs = join {
+      case o1(x) && o2(y) => Next(x + y)
+      case o1.done && o2.done => Done
+    }
+
+    val result = obs.toBlocking.toList
+    assert(result != input)
+  }
 }

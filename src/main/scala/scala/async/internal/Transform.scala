@@ -5,7 +5,7 @@ trait Transform {
   def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree
 }
 
-trait RxJoinTransform extends Transform {
+trait LockFreeTransform extends Transform {
   self: JoinMacro with Parse with RxJavaSubscribeService => 
   import c.universe._
 
@@ -108,6 +108,9 @@ trait LockTransform extends Transform {
       observablesToEvents
         .map({case (observable ,_) => observable -> fresh("subscriber")})
         .toMap
+    // For backpressure control we need to know the buffer size to use.
+    import scala.async.Join.BufferSize
+    val bufferSizeTree = q"${c.inferImplicitValue(typeOf[BufferSize])}.size"
     // We generate a callback for every event of type Next/Error/Done. (NextFilter
     // are a special case of Next, and handled within the callbacks of the Next event
     // with the same source-symbol (i.e. the same Observable)).
@@ -144,7 +147,7 @@ trait LockTransform extends Transform {
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
                ${insertIfTracing(q"""debug("Requesting more from dequeued")""")}
-               $subscriber.asInstanceOf[Requestable].requestMore(1)
+               $subscriber.asInstanceOf[Requestable].requestMore($bufferSizeTree)
               }""")
           })
           // Retrieve the names of the vars storting the throwables of possibly involved Error events
@@ -173,7 +176,7 @@ trait LockTransform extends Transform {
               q"""
               if ($occuredQueue.isEmpty) {
                 ${insertIfTracing(q"""debug("Requesting more from source")""")}
-                $occuredSubscriber.asInstanceOf[Requestable].requestMore(1)
+                $occuredSubscriber.asInstanceOf[Requestable].requestMore($bufferSizeTree)
               }
               """
             case _ => EmptyTree
@@ -225,7 +228,7 @@ trait LockTransform extends Transform {
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
       val subscription = observablesToSubscriptions.get(obsSym).get
       val subscriber = observablesToSubscribers.get(obsSym).get
-      q"$subscription = ${generateSubscription(obsSym, subscriber, next, error, done)}"
+      q"$subscription = ${generateSubscription(obsSym, subscriber, next, error, done, bufferSizeTree)}"
     })
 
     val subscriptionVarDefs = observablesToSubscriptions.map({ case (_, subscription) => 
@@ -238,15 +241,12 @@ trait LockTransform extends Transform {
     })
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
-    
+
     // Assemble all parts into the full transform
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
-
-    trait Requestable {
-      def requestMore(n: Int): Unit
-    }
+    import _root_.scala.async.Join.Requestable
 
     var ${names.stateVar} = 0L
     val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
