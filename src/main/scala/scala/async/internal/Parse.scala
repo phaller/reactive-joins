@@ -32,8 +32,9 @@ trait Parse {
   // Transforms a CaseDef-Tree into a PatternTree, and additionaly returns 
   // a mapping from Events to the Symbol of their variable bindings (e.g. 
   // the "x" in "case Obs(x) => ...").
-  def transformToPatternTree(caseDefTree: Tree): (PatternTree, Map[Event, Symbol]) = {
+  private def transformToPatternTree(caseDefTree: Tree): (PatternTree, Map[Event, Symbol]) = {
     caseDefTree match {
+      // Binary operators: &&, and ||
       case pq"$ref(..$pats)" if pats.size == 2 => 
         val (left, leftBindings) = transformToPatternTree(pats(0))
         val (right, rightBindings) = transformToPatternTree(pats(1))
@@ -43,6 +44,7 @@ trait Parse {
           case tpe if tpe.contains("&&.type") => (And(left, right), combinedBindings)
           case tpe if tpe.contains("||.type") => (Or(left, right), combinedBindings)
         }
+      // Unary operators: Next, Error, and NextFilter (e.g. case Obs(1))
       case pq"$ref(..$pats)" if pats.size == 1 => pats.head match {
         case patternVar @ Bind(_, _) => ref match {
           case Select(obs @ _, TermName("error")) => 
@@ -54,17 +56,22 @@ trait Parse {
         }
         case Literal(const @ Constant(_)) => (NextFilter(ref.symbol, const), Map[Event, Symbol]())
       }
+      // Done
       case pq"$ref" => ref match {
         case Select(obs @ _, TermName("done")) => (Done(obs.symbol), Map[Event, Symbol]())
       }
     }
   }
 
-  def extractEvents(patternTree: PatternTree): Set[Event] = patternTree match {
+  // Extracts events from PatternTrees
+  private def extractEvents(patternTree: PatternTree): Set[Event] = patternTree match {
     case And(left, right) => extractEvents(left) ++ extractEvents(right)
     case Or(left, right) => extractEvents(left) ++ extractEvents(right)
     case event: Event => Set(event)
   }
+
+  // Collects unique events across all patterns. (The same event might be used in many patterns.)
+  def uniqueEvents(patterns: Set[Pattern]): Set[Event] =  patterns.flatMap({ case Pattern(events, _, _, _) => events }).toSet
 
   def parse[A](pf: c.Tree): Set[Pattern] = {
     val q"{ case ..$cases }" = pf

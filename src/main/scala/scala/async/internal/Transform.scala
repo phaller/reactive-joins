@@ -8,9 +8,12 @@ trait Transform {
 trait LockFreeTransform extends Transform {
   self: JoinMacro with Parse with RxJavaSubscribeService => 
   import c.universe._
+  import chemistry._
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
+    val events: Set[Event] = uniqueEvents(patterns)
+    var reagent: Reagent[Int, Unit] = null 
     EmptyTree
   }
 }
@@ -68,13 +71,12 @@ trait LockTransform extends Transform {
       c.error(c.enclosingPosition, s"Join pattern has to return a value of type JoinReturn: Next(...), Done, or Pass. Got: $other")
       EmptyTree
   }
-
+ 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
-    // Collect events across all pattern, and remove duplicates.
-    val events: Set[Event] = 
-      patterns.flatMap({ case Pattern(events, _, _, _) => events }).toSet
+    // Collect unique events from patterns 
+    val events: Set[Event] = uniqueEvents(patterns)
     // Assign to each event a unique id (has to be a power of 2).
     val eventsToIds: Map[Event, Long] = 
       events.zipWithIndex.map({ case (event, index) => (event, 1L << index) }).toMap
