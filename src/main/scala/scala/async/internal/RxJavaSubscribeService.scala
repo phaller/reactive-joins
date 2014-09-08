@@ -6,7 +6,7 @@ trait RxJavaSubscribeService {
 
   type EventCallback = Option[Option[TermName] => c.Tree]
 
-  def generateSubscription(joinObservable: Symbol, subscriber: TermName, onNext: EventCallback, onError: EventCallback, onDone: EventCallback, initialRequest: c.Tree): c.Tree = {
+  def generateSubscription(joinObservable: Symbol, requestable: TermName, onNext: EventCallback, onError: EventCallback, onDone: EventCallback, initialRequest: c.Tree): c.Tree = {
     val obsTpe = typeArgumentOf(joinObservable)
     val nextMessage = fresh("nextMessage")
     val errorMessage = fresh("errorMessage")
@@ -30,20 +30,26 @@ trait RxJavaSubscribeService {
       case None => q"()"
     }
     val overrideDone = q"override def onCompleted(): Unit = $done"
+    val subscription = fresh("subscription")
     // In case we only have subscriptions do onError, or onDone then we can
     // request a maximum number of events since they both only occur once.
     // If we do not do this than a join wainting only for onDone, or onError would be
     // stuck unless the onDone, or onError event is the only, and first event to 
     // be emitted.
     q"""
-    $subscriber = new _root_.rx.lang.scala.Subscriber[$obsTpe] with Requestable {
+    $requestable = new _root_.rx.lang.scala.Subscriber[$obsTpe] with _root_.scala.async.Join.Requestable {
         override def onStart(): Unit = request($initialRequest)
         $overrideNext
         $overrideError
         $overrideDone
         def requestMore(n: Long) = request(n)
     }
-    $joinObservable.observable.subscribe($subscriber)
+
+    new AnyRef with _root_.scala.async.Join.Unsubscribable {
+      val $subscription = $joinObservable.observable.subscribe($requestable.asInstanceOf[_root_.rx.lang.scala.Subscriber[$obsTpe]])
+      def unsubscribe() = $subscription.unsubscribe()
+    }
+
     """ 
   }
 }

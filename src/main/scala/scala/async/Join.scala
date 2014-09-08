@@ -42,6 +42,10 @@ object Join {
     def requestMore(n: Long): Unit
   }
 
+  trait Unsubscribable {
+    def unsubscribe(): Unit
+  }
+
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]

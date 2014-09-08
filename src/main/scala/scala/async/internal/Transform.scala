@@ -10,11 +10,25 @@ trait LockFreeTransform extends Transform {
   import c.universe._
   import chemistry._
 
+// names represents a global namespace 
+  object names { 
+    val subjectVal = fresh("subject")
+  }
+
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
     val events: Set[Event] = uniqueEvents(patterns)
-    var reagent: Reagent[Int, Unit] = null 
-    EmptyTree
+
+    val eventCallbacks = events.toList.map(occuredEvent => 
+      occuredEvent -> ((nextMessage: Option[TermName]) => {
+
+    }))
+
+    val resultType = implicitly[WeakTypeTag[A]].tpe
+    q"""
+      val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+      ${names.subjectVal}
+    """ 
   }
 }
 
@@ -106,9 +120,9 @@ trait LockTransform extends Transform {
         .map({case (observable ,_) => observable -> fresh("subscription")})
         .toMap
     // We need to store the subscriber to every observable so that we can handle back-pressure
-    val observablesToSubscribers = 
+    val observablesToRequestables = 
       observablesToEvents
-        .map({case (observable ,_) => observable -> fresh("subscriber")})
+        .map({case (observable ,_) => observable -> fresh("requestable")})
         .toMap
     // For backpressure control we need to know the buffer size to use.
     import scala.async.Join.BufferSize
@@ -144,12 +158,12 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasiquote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val subscriber = observablesToSubscribers.get(event.source).get
+            val requestable = observablesToRequestables.get(event.source).get
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
                ${insertIfTracing(q"""debug("Requesting more from dequeued")""")}
-               $subscriber.asInstanceOf[Requestable].requestMore($bufferSizeTree)
+               $requestable.requestMore($bufferSizeTree)
               }""")
           })
           // Retrieve the names of the vars storting the throwables of possibly involved Error events
@@ -174,11 +188,11 @@ trait LockTransform extends Transform {
           val requestMoreFromOccured = occuredEvent match {
             case event @ Next(source) => 
               val occuredQueue = nextEventsToQueues.get(event).get
-              val occuredSubscriber = observablesToSubscribers.get(source).get
+              val occuredRequestable = observablesToRequestables.get(source).get
               q"""
               if ($occuredQueue.isEmpty) {
                 ${insertIfTracing(q"""debug("Requesting more from source")""")}
-                $occuredSubscriber.asInstanceOf[Requestable].requestMore($bufferSizeTree)
+                $occuredRequestable.requestMore($bufferSizeTree)
               }
               """
             case _ => EmptyTree
@@ -229,17 +243,17 @@ trait LockTransform extends Transform {
       val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
       val subscription = observablesToSubscriptions.get(obsSym).get
-      val subscriber = observablesToSubscribers.get(obsSym).get
-      q"$subscription = ${generateSubscription(obsSym, subscriber, next, error, done, bufferSizeTree)}"
+      val requestable = observablesToRequestables.get(obsSym).get
+      q"$subscription = ${generateSubscription(obsSym, requestable, next, error, done, bufferSizeTree)}"
     })
 
     val subscriptionVarDefs = observablesToSubscriptions.map({ case (_, subscription) => 
-      q"var $subscription: _root_.rx.lang.scala.Subscription = null"
+      q"var $subscription: _root_.scala.async.Join.Unsubscribable = null"
     })
 
-    val subscriberVarDefs = observablesToSubscribers.map({ case (obsSym, subscriber) =>
+    val requestableVarDefs = observablesToRequestables.map({ case (obsSym, requestable) =>
       val obsTpe = typeArgumentOf(obsSym)
-      q"var $subscriber: _root_.rx.lang.scala.Subscriber[$obsTpe] = null"
+      q"var $requestable: _root_.scala.async.Join.Requestable = null"
     })
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
@@ -258,8 +272,8 @@ trait LockTransform extends Transform {
     // Subscription declarations
     ..$subscriptionVarDefs
 
-    // Subscriber declarations
-    ..$subscriberVarDefs
+    // Requestables declarations
+    ..$requestableVarDefs
 
     // Queue declarations for Next event messages
     ..${nextEventsToQueues.map({ case (event, queueName) =>
