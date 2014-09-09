@@ -49,7 +49,6 @@ trait RxJavaSubscribeService {
       val $subscription = $joinObservable.observable.subscribe($requestable.asInstanceOf[_root_.rx.lang.scala.Subscriber[$obsTpe]])
       def unsubscribe() = $subscription.unsubscribe()
     }
-
     """ 
   }
 }
