@@ -1,43 +1,56 @@
 package scala.async.tests
 
 import scala.async.Join._
-import rx.lang.scala.Observable
+import rx.lang.scala._
+import rx.observables.{JoinObservable => RxJoinObservable};
+
 import org.scalameter.api._
 
-object FirstBenchmark extends PerformanceTest.Quickbenchmark {
+class RxReactBench extends PerformanceTest.OfflineReport {
   
-  val sizes = Gen.range("size")(300000, 1500000, 300000)
+  val sumSizes = Gen.range("size")(100000, 500000, 100000)
 
-  val ranges = for {
-    size <- sizes
-  } yield 0 until size
+  performance of "sum" config(
+    exec.minWarmupRuns -> 50,
+    exec.maxWarmupRuns -> 100,
+    exec.benchRuns -> 30,
+    exec.independentSamples -> 1
+  ) in {
 
-  performance of "Range" in {
-    measure method "map" in {
-      using(ranges) in {
-        r => r.map(_ + 1)
+    using(sumSizes) curve("AsyncJoins") in { size =>
+      val s1 = Subject[Int]
+      val s2 = Subject[Int]
+
+      val o1 = s1.p
+      val o2 = s2.p
+
+      val obs = join {
+        case o1(x) && o2(y) => Next(x + y)
+        case o1.done && o2.done => Done
+      }
+      var i = 0
+      while (i < size) {
+        s1.onNext(i)
+        s2.onNext(i)
+        i += 1
+      }
+    }
+
+    using(sumSizes) curve("RxJoins") in { size =>
+      import rx.subjects._
+      import rx.lang.scala.ImplicitFunctionConversions._
+
+      val s1: PublishSubject[Int] = PublishSubject.create();      
+      val s2: PublishSubject[Int] = PublishSubject.create();      
+
+      RxJoinObservable.when(RxJoinObservable.from(s1).and(s2).then((x: Int, y: Int) => x + y))
+
+      var i = 0
+      while (i < size) {
+        s1.onNext(i)
+        s2.onNext(i)
+        i += 1
       }
     }
   }
 }
-// class Benchmarks {
-
-//   @Test
-//   def binaryOrJoin() = {
-//     val size = randomNonZeroEvenInteger(maxListSize)
-//     val input = List.fill(size)(())
-
-//     val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-//     val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    
-//     val obs = join {
-//       case o1(x) => Next(x)
-//       case o2(y) => Next(y)
-//       case o1.done && o2.done => Done
-//     }
-
-//     val result = obs.toBlocking.toList
-//     assert(result.size == (size * 2))
-//   }
-
-// }

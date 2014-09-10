@@ -10,6 +10,8 @@ libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value %
 
 libraryDependencies += "com.netflix.rxjava" % "rxjava-scala" % "0.20.2"
 
+libraryDependencies += "com.netflix.rxjava" % "rxjava-joins" % "0.20.4"
+
 libraryDependencies += "com.novocode" % "junit-interface" % "0.10" % "test"
 
 testOptions += Tests.Argument(TestFrameworks.JUnit, "+q", "-v", "-s")

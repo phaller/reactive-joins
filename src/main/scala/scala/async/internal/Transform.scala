@@ -21,7 +21,9 @@ trait LockFreeTransform extends Transform {
 
     val eventCallbacks = events.toList.map(occuredEvent => 
       occuredEvent -> ((nextMessage: Option[TermName]) => {
-
+        // for every pattern the event is part of
+        // try to claim the required queues
+        // 
     }))
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
