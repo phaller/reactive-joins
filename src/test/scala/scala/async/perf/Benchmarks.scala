@@ -6,9 +6,9 @@ import rx.observables.{JoinObservable => RxJoinObservable}
 
 import org.scalameter.api._
 
-class RxReactBench extends PerformanceTest.OfflineRegressionReport {
+class RxReactBench extends PerformanceTest.OfflineReport {
   
-  val sumSizes = Gen.range("size")(100000, 500000, 100000)
+  val sumSizes = Gen.range("size")(100000, 300000, 100000)
 
   performance of "zipMap" config(
     exec.minWarmupRuns -> 50,
@@ -109,5 +109,4 @@ class RxReactBench extends PerformanceTest.OfflineRegressionReport {
       }
     }
   }
-
 }

@@ -4,6 +4,8 @@ name := "scala-async-join"
 
 version := "0.0.1-SNAPSHOT"
 
+startYear := Some(2014)
+
 resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
 
 libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value % "provided"
@@ -25,5 +27,3 @@ parallelExecution in Test := false
 scalacOptions in compile ++= Seq("-optimize", "-deprecation", "-unchecked", "-Xlint", "-feature")
 
 scalacOptions in Test ++= Seq("-Yrangepos", "-deprecation", "-feature", "-unchecked", "-Xlog-reflective-calls")
-
-startYear := Some(2014)

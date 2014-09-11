@@ -128,7 +128,13 @@ trait LockTransform extends Transform {
         .toMap
     // For backpressure control we need to know the buffer size to use.
     import scala.async.Join.BufferSize
-    val bufferSizeTree = q"${c.inferImplicitValue(typeOf[BufferSize])}.size"
+    val implicitBufferSizeValue = c.inferImplicitValue(typeOf[BufferSize])
+    val bufferSizeTree = q"${implicitBufferSizeValue}.size"
+    // Required to determine whether we need to call request more than once
+    val unboundBuffer = implicitBufferSizeValue match {
+      case Select(_, TermName("defaultBufferSize")) => true
+      case _ => false
+    }
     // We generate a callback for every event of type Next/Error/Done. (NextFilter
     // are a special case of Next, and handled within the callbacks of the Next event
     // with the same source-symbol (i.e. the same Observable)).
@@ -160,12 +166,17 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasiquote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val requestable = observablesToRequestables.get(event.source).get
+            val requestMoreStats = if (unboundBuffer) EmptyTree else {
+              val requestable = observablesToRequestables.get(event.source).get
+              q"""
+               ${insertIfTracing(q"""debug("Requesting more from dequeued")""")}
+               $requestable.requestMore($bufferSizeTree)
+              """
+            }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
-               ${insertIfTracing(q"""debug("Requesting more from dequeued")""")}
-               $requestable.requestMore($bufferSizeTree)
+               ..$requestMoreStats
               }""")
           })
           // Retrieve the names of the vars storting the throwables of possibly involved Error events
@@ -186,9 +197,8 @@ trait LockTransform extends Transform {
             case Block(stats, lastExpr) => q"..$stats; ..${generateReturnExpression(lastExpr)}"
             case _ => generateReturnExpression(rawPatternBody)
           }
-
           val requestMoreFromOccured = occuredEvent match {
-            case event @ Next(source) => 
+            case event @ Next(source) if !unboundBuffer => 
               val occuredQueue = nextEventsToQueues.get(event).get
               val occuredRequestable = observablesToRequestables.get(source).get
               q"""

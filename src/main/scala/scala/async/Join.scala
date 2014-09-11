@@ -55,6 +55,8 @@ object Join {
     require(size > 0, "Buffer size needs to be at least 1")
   }
   object BufferSize {
+    // Be very careful when changing these names, as they are matched against.
+    // Buffersize of Long.MaxValue means unbounded buffer!
     implicit val defaultBufferSize = BufferSize(Long.MaxValue)
   }
 
