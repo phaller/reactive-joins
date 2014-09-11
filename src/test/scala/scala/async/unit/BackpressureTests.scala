@@ -17,6 +17,7 @@ class BackpressureTests {
     val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
     implicit val bufferSize = BufferSize(1)
+
     val obs = join {
       case o1(x) && o2(y) => Next(x + y)
       case o1.done && o2.done => Done

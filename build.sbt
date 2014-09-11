@@ -24,6 +24,6 @@ parallelExecution in Test := false
 
 scalacOptions in compile ++= Seq("-optimize", "-deprecation", "-unchecked", "-Xlint", "-feature")
 
-scalacOptions in Test ++= Seq("-Yrangepos", "-deprecation", "-feature", "-unchecked")
+scalacOptions in Test ++= Seq("-Yrangepos", "-deprecation", "-feature", "-unchecked", "-Xlog-reflective-calls")
 
 startYear := Some(2014)

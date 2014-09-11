@@ -60,7 +60,7 @@ trait LockTransform extends Transform {
         ${insertIfTracing(q"""debug("Pattern matched!")""")}
         ..$body
         ${insertIfTracing(q"""debug("Releasing lock")""")}
-        ${names.stateLockVal}.release()
+        ${names.stateLockVal}.unlock()
         ..$continuation
         break
     }
@@ -216,12 +216,12 @@ trait LockTransform extends Transform {
       }
       q"""
         ${insertIfTracing(q"""debug("Waiting for lock")""")}
-        ${names.stateLockVal}.acquire()
+        ${names.stateLockVal}.lock()
         ${insertIfTracing(q"""debug("Got lock")""")}
         if (${names.stop}) {
           ${insertIfTracing(q"""debug("Aborting execution")""")}
           ${insertIfTracing(q"""debug("Releasing Lock")""")}
-          ${names.stateLockVal}.release()
+          ${names.stateLockVal}.unlock()
         } else {
           val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
           breakable {
@@ -233,7 +233,7 @@ trait LockTransform extends Transform {
             ${names.stateVar} = $possibleStateVal
             ${insertIfTracing(q"""debug("Releasing Lock")""")}
             ${insertIfTracing(q"printQueues()")}
-            ${names.stateLockVal}.release()
+            ${names.stateLockVal}.unlock()
           }
         }
       """
@@ -267,7 +267,7 @@ trait LockTransform extends Transform {
     import _root_.scala.async.Join.Requestable
 
     var ${names.stateVar} = 0L
-    val ${names.stateLockVal} = new _root_.scala.concurrent.Lock()
+    val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock
     val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
     var ${names.stop} = false
 
