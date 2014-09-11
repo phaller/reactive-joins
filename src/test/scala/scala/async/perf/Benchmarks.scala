@@ -6,7 +6,7 @@ import rx.observables.{JoinObservable => RxJoinObservable}
 
 import org.scalameter.api._
 
-class RxReactBench extends PerformanceTest.OfflineReport {
+class RxReactBench extends PerformanceTest.OfflineRegressionReport {
   
   val sumSizes = Gen.range("size")(100000, 500000, 100000)
 
