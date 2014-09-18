@@ -10,7 +10,7 @@ trait LockFreeTransform extends Transform {
   import c.universe._
   import chemistry._
 
-// names represents a global namespace 
+  // names represents a global namespace 
   object names { 
     val subjectVal = fresh("subject")
   }
@@ -18,18 +18,21 @@ trait LockFreeTransform extends Transform {
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
     val events: Set[Event] = uniqueEvents(patterns)
-
+    // we need to create a queue for every next event
     val eventCallbacks = events.toList.map(occuredEvent => 
       occuredEvent -> ((nextMessage: Option[TermName]) => {
-        // for every pattern the event is part of
-        // try to claim the required queues
-        // 
+        // Assume Next(x)
+        // Put a message into into queue
+        // Repeat until resolved
+        // try-to claim 
+
     }))
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
     q"""
-      val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
-      ${names.subjectVal}
+    import _root_.java.util.concurrent.ConcurrentLinkedQueue
+    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+    ${names.subjectVal}
     """ 
   }
 }
@@ -53,13 +56,8 @@ trait LockTransform extends Transform {
       case guardTree => q"(($checkPatternTree) && $guardTree)"
     }
     q"""
-    ${insertIfTracing(q"""
-      debug("Checking pattern: " + $patternId)
-      """)}
     if ($matchExpression) {
-        ${insertIfTracing(q"""debug("Pattern matched!")""")}
         ..$body
-        ${insertIfTracing(q"""debug("Releasing lock")""")}
         ${names.stateLockVal}.unlock()
         ..$continuation
         break
@@ -69,7 +67,6 @@ trait LockTransform extends Transform {
 
   def generateReturnExpression(patternBody: c.Tree): c.Tree = patternBody match {
     case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), nextExpr) => q"""
-      ${insertIfTracing(q"printQueues()")}
       try {
         ${names.subjectVal}.onNext(${nextExpr.head})
       } catch {
@@ -101,31 +98,23 @@ trait LockTransform extends Transform {
     val patternsToIds: Map[Pattern, Long] =
       patterns.map(p => p -> p.events.foldLeft(0L)(accumulateEventId)).toMap
     // We keep for every Next event a mutable Queue. We'll create names now, and declare the queues later.
-    val nextEventsToQueues =
-      events.collect({ case event: Next => event })
-      .map(event => (event, fresh("queue")))
-      .toMap
+    val nextEventsToQueues = 
+      freshNames(events.collect({ case event: Next => event }), "queue")
     // We keep for every Error event a variable to store the throwable it carries.
     // No larger buffer is needed as an Exeception can be thrown exactly once per source.
     // Notice: we do not need to buffer Done events since they do not carry a message,
     // and they happen only once per souce. Therefore no additional information needs to 
     // be stored other than their presence (which is already done so in the global state).
     val errorEventsToVars = 
-      events.collect({ case event: Error => event })
-      .map(event => (event, fresh("error")))
-      .toMap
-    // Every observable is subscribed to once. This results in a subscription later used
+      freshNames(events.collect({ case event: Error => event }), "error")
+    // Every observable is subscribered to once. This results in a subscription later used
     // to unsubscribe, and free resources. We therefore need to store that subscription.
-    val observablesToEvents = events.groupBy(e => e.source)
+    val observables = events.groupBy(e => e.source).map(_._1)
     val observablesToSubscriptions =
-      observablesToEvents
-        .map({case (observable ,_) => observable -> fresh("subscription")})
-        .toMap
+      freshNames(observables, "subscription")
     // We need to store the subscriber to every observable so that we can handle back-pressure
     val observablesToRequestables = 
-      observablesToEvents
-        .map({case (observable ,_) => observable -> fresh("requestable")})
-        .toMap
+      freshNames(observables, "requestable")
     // For backpressure control we need to know the buffer size to use.
     import scala.async.Join.BufferSize
     val implicitBufferSizeValue = c.inferImplicitValue(typeOf[BufferSize])
@@ -158,8 +147,8 @@ trait LockTransform extends Transform {
           val otherEvents = myPattern.events.toList.filter(otherEvent => otherEvent != occuredEvent)
           // We need vals to store the messages we dequeue from previous Next events
           val dequeuedMessageVals = 
-            otherEvents.collect({ case event: Next => event })
-            .map(event => event -> fresh("dequeuedMessage"))
+            freshNames(otherEvents.collect({ case event: Next => event }), "dequeuedMessage")
+            .toList
           // Generate the deqeue statements. Further, update the state to reflect the removal of
           // the buffered events (set the event bit to 0 in case there are no more buffered messages).
           // We return a pair because of a problem of the creation of a Block by the quasiquotation if 
@@ -169,7 +158,6 @@ trait LockTransform extends Transform {
             val requestMoreStats = if (unboundBuffer) EmptyTree else {
               val requestable = observablesToRequestables.get(event.source).get
               q"""
-               ${insertIfTracing(q"""debug("Requesting more from dequeued")""")}
                $requestable.requestMore($bufferSizeTree)
               """
             }
@@ -179,7 +167,7 @@ trait LockTransform extends Transform {
                ..$requestMoreStats
               }""")
           })
-          // Retrieve the names of the vars storting the throwables of possibly involved Error events
+          // Retrieve the names of the vars storing the Throwables of possibly involved Error events
           val errorVars = otherEvents.collect({ case event: Error => event })
             .map(event => event -> errorEventsToVars.get(event).get)
           // Replace the occurences of Next, and Error event binding variables in the pattern-body
@@ -203,7 +191,6 @@ trait LockTransform extends Transform {
               val occuredRequestable = observablesToRequestables.get(source).get
               q"""
               if ($occuredQueue.isEmpty) {
-                ${insertIfTracing(q"""debug("Requesting more from source")""")}
                 $occuredRequestable.requestMore($bufferSizeTree)
               }
               """
@@ -225,51 +212,29 @@ trait LockTransform extends Transform {
         case _ => EmptyTree
       }
       q"""
-        ${insertIfTracing(q"""debug("Waiting for lock")""")}
         ${names.stateLockVal}.lock()
-        ${insertIfTracing(q"""debug("Got lock")""")}
         if (${names.stop}) {
-          ${insertIfTracing(q"""debug("Aborting execution")""")}
-          ${insertIfTracing(q"""debug("Releasing Lock")""")}
           ${names.stateLockVal}.unlock()
         } else {
           val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
           breakable {
-            ${insertIfTracing(q"""debug("Checking Patterns")""")}
             ..$patternChecks
-            ${insertIfTracing(q"""debug("No pattern matched. Buffering.")""")}
             // Reaching this line means that no pattern has matched, and we need to buffer the message
             $bufferStatement
             ${names.stateVar} = $possibleStateVal
-            ${insertIfTracing(q"""debug("Releasing Lock")""")}
-            ${insertIfTracing(q"printQueues()")}
             ${names.stateLockVal}.unlock()
           }
         }
       """
     }))
-    // Generate subscriptions for RxJava
-    val observablesToEventCallbacks = eventCallbacks.groupBy({ case (event, _) => event.source }) 
-    val subscriptions = observablesToEventCallbacks.map({ case (obsSym, events) => 
-      val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
-      val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
-      val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
-      val subscription = observablesToSubscriptions.get(obsSym).get
-      val requestable = observablesToRequestables.get(obsSym).get
-      q"$subscription = ${generateSubscription(obsSym, requestable, next, error, done, bufferSizeTree)}"
-    })
-
-    val subscriptionVarDefs = observablesToSubscriptions.map({ case (_, subscription) => 
-      q"var $subscription: _root_.scala.async.Join.Unsubscribable = null"
-    })
-
-    val requestableVarDefs = observablesToRequestables.map({ case (obsSym, requestable) =>
-      val obsTpe = typeArgumentOf(obsSym)
-      q"var $requestable: _root_.scala.async.Join.Requestable = null"
-    })
-
+    // Generate unsubscribable for RxJava
+    val subscriptions = 
+      generateSubscriptions(eventCallbacks.toMap, 
+                            observablesToSubscriptions,
+                            observablesToRequestables,
+                            bufferSizeTree)
+    // Resolve the type of elements the generated observable will emit
     val resultType = implicitly[WeakTypeTag[A]].tpe
-
     // Assemble all parts into the full transform
     q"""
     import _root_.scala.util.control.Breaks._
@@ -281,12 +246,6 @@ trait LockTransform extends Transform {
     val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
     var ${names.stop} = false
 
-    // Subscription declarations
-    ..$subscriptionVarDefs
-
-    // Requestables declarations
-    ..$requestableVarDefs
-
     // Queue declarations for Next event messages
     ..${nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)
@@ -294,25 +253,15 @@ trait LockTransform extends Transform {
       })}
 
     // Variable declarations to store Error event messages (throwables)
-    ..${errorEventsToVars.map({ case (event, varName) => 
+    ..${errorEventsToVars.map({ case (_, varName) => 
         q"var $varName: Throwable = null"
     })}
 
     ..$subscriptions
   
     def unsubscribe() = {..${observablesToSubscriptions.map({ case (_, s) => q"""
-        ${insertIfTracing(q"""debug("Unsubscribing")""")}
         $s.unsubscribe()
     """})}}
-
-    ..${insertIfTracing(q"""
-    def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
-    def printQueues() = {
-        ..${nextEventsToQueues.map({ case (_, queueName) =>
-          q"""println("[join] " + $queueName)"""
-      })}
-    }
-    """)}
 
     ${names.subjectVal}
     """

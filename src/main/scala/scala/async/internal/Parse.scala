@@ -71,7 +71,7 @@ trait Parse {
   }
 
   // Collects unique events across all patterns. (The same event might be used in many patterns.)
-  def uniqueEvents(patterns: Set[Pattern]): Set[Event] =  patterns.flatMap({ case Pattern(events, _, _, _) => events }).toSet
+  def uniqueEvents(patterns: Set[Pattern]): Set[Event] = patterns.flatMap({ case Pattern(events, _, _, _) => events }).toSet
 
   def parse[A](pf: c.Tree): Set[Pattern] = {
     val q"{ case ..$cases }" = pf
