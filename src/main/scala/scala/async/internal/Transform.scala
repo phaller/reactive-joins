@@ -239,7 +239,6 @@ trait LockTransform extends Transform {
     q"""
     import _root_.scala.util.control.Breaks._
     import _root_.scala.collection.mutable
-    import _root_.scala.async.Join.Requestable
 
     var ${names.stateVar} = 0L
     val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock
@@ -259,7 +258,8 @@ trait LockTransform extends Transform {
 
     ..$subscriptions
   
-    def unsubscribe() = {..${observablesToSubscriptions.map({ case (_, s) => q"""
+    def unsubscribe() = {..${
+      observablesToSubscriptions.map({ case (_, s) => q"""
         $s.unsubscribe()
     """})}}
 
