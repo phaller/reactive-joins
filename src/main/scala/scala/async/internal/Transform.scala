@@ -55,7 +55,7 @@ trait LockFreeTransform extends Transform {
 }
 
 trait LockTransform extends Transform { 
-  self: JoinMacro with Parse with RxJavaSubscribeService with Util =>
+  self: JoinMacro with Parse with RxJavaSubscribeService with BackPressure with Util=>
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
@@ -130,15 +130,6 @@ trait LockTransform extends Transform {
     // We need to store the subscriber to every observable so that we can handle back-pressure
     val observablesToRequestables = 
       freshNames(observables, "requestable")
-    // For backpressure control we need to know the buffer size to use.
-    import scala.async.Join.BufferSize
-    val implicitBufferSizeValue = c.inferImplicitValue(typeOf[BufferSize])
-    val bufferSizeTree = q"${implicitBufferSizeValue}.size"
-    // Required to determine whether we need to call request more than once
-    val unboundBuffer = implicitBufferSizeValue match {
-      case Select(_, TermName("defaultBufferSize")) => true
-      case _ => false
-    }
     // We generate a callback for every event of type Next/Error/Done. (NextFilter
     // are a special case of Next, and handled within the callbacks of the Next event
     // with the same source-symbol (i.e. the same Observable)).
