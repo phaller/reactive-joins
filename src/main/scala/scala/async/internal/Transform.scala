@@ -31,14 +31,13 @@ trait LockFreeTransform extends Transform {
         // Put a message into into queue
         // Repeat until resolved
         // try-to claim 
-
+        EmptyTree
     }))
 
-    val subscriptions = ???
-      // generateSubscriptions(eventCallbacks.toMap, 
-      //                       observablesToSubscriptions,
-      //                       observablesToRequestables,
-      //                       bufferSizeTree)
+    val subscriptions =  generateSubscriptions(eventCallbacks.toMap, 
+                            observablesToSubscriptions,
+                            observablesToRequestables,
+                            bufferSizeTree)
 
     val resultType = implicitly[WeakTypeTag[A]].tpe
     q"""

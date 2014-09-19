@@ -95,11 +95,11 @@ trait Parse {
  // Parse a pattern-body for the action the user wants to perform, also returns the other statement to be executed
  // before the JoinReturn action, which is only Next, Done, or Pass
  def parsePatternBody(patternBody: c.Tree): (JoinReturn[c.Tree], List[c.Tree]) = patternBody match {
-  case Block(stats, lastExpr) => (parseReturnStatement(lastExpr), stats)
-  case Apply(Select(_, TermName("unitToPass")), stats) => (ReturnPass, stats)
-  // ^ matches the implicit conversion from Unit to Pass
-  case _ => (parseReturnStatement(patternBody), List(EmptyTree))
- }
+    case Block(stats, lastExpr) => (parseReturnStatement(lastExpr), stats)
+    case Apply(Select(_, TermName("unitToPass")), stats) => (ReturnPass, stats)
+    // ^ matches the implicit conversion from Unit to Pass
+    case _ => (parseReturnStatement(patternBody), List(EmptyTree))
+  }
 
   // Returns a representation of what the user wanted us to do in a pattern body. If it's a next, then the expression
   // of what a user wanted to send (e.g. the x in Next(x)) is returned as JoinReturn[c.Tree].
