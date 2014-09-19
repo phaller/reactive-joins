@@ -3,6 +3,7 @@ package scala.async.internal
 trait Parse {
   self: JoinMacro =>
   import c.universe._
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   // Abstract Syntax Trees for the partifal-function join-syntax
   sealed trait PatternTree
@@ -70,10 +71,10 @@ trait Parse {
     case event: Event => Set(event)
   }
 
-  // Collects unique events across all patterns. (The same event might be used in many patterns.)
+  // Collects unique events across all patterns. (The same event might be used in multiple patterns.)
   def uniqueEvents(patterns: Set[Pattern]): Set[Event] = patterns.flatMap({ case Pattern(events, _, _, _) => events }).toSet
 
-  def parse[A](pf: c.Tree): Set[Pattern] = {
+  def parse(pf: c.Tree): Set[Pattern] = {
     val q"{ case ..$cases }" = pf
 
     val definedPatterns: List[Pattern] = cases.map(caze => { 
@@ -90,4 +91,22 @@ trait Parse {
     }
     patterns
   }
+
+ def parsePatternBody(patternBody: c.Tree): (JoinReturn[c.Tree], List[c.Tree]) = patternBody match {
+  case Block(stats, lastExpr) => (parseReturnStatement(lastExpr), stats)
+  case Apply(Select(_, TermName("unitToPass")), stats) => (ReturnPass, stats)
+  // ^ matches the implicit conversion from Unit to Pass
+  case _ => (parseReturnStatement(patternBody), List(EmptyTree))
+ }
+
+  // Returns a representation of what the user wanted us to do in a pattern body.
+  private def parseReturnStatement(statement: c.Tree): JoinReturn[c.Tree] = statement match {
+    case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), stats) => ReturnNext(stats.head)
+    case Select(_, TermName("Done")) => ReturnDone
+    case Select(_, TermName("Pass")) => ReturnPass
+    case other =>  
+      c.error(c.enclosingPosition, s"Join pattern has to return a value of type JoinReturn: Next(...), Done, or Pass. Got: $other")
+      ReturnPass
+ }
+
 }

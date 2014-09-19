@@ -8,8 +8,6 @@ trait Transform {
 trait LockFreeTransform extends Transform {
   self: JoinMacro with Parse with RxJavaSubscribeService => 
   import c.universe._
-  import chemistry._
-
   // names represents a global namespace 
   object names { 
     val subjectVal = fresh("subject")
@@ -18,7 +16,15 @@ trait LockFreeTransform extends Transform {
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
     val events: Set[Event] = uniqueEvents(patterns)
-    // we need to create a queue for every next event
+    val observables = events.groupBy(e => e.source).map(_._1)
+    val observablesToSubscriptions =
+      freshNames(observables, "subscription")
+    val observablesToRequestables = 
+      freshNames(observables, "requestable")
+    val nextEventsToQueues = 
+      freshNames(events.collect({ case event: Next => event }), "queue")
+    val errorEventsToVars = 
+      freshNames(events.collect({ case event: Error => event }), "error")
     val eventCallbacks = events.toList.map(occuredEvent => 
       occuredEvent -> ((nextMessage: Option[TermName]) => {
         // Assume Next(x)
@@ -28,10 +34,21 @@ trait LockFreeTransform extends Transform {
 
     }))
 
+    val subscriptions = ???
+      // generateSubscriptions(eventCallbacks.toMap, 
+      //                       observablesToSubscriptions,
+      //                       observablesToRequestables,
+      //                       bufferSizeTree)
+
     val resultType = implicitly[WeakTypeTag[A]].tpe
     q"""
-    import _root_.java.util.concurrent.ConcurrentLinkedQueue
     val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
+    
+    ..${nextEventsToQueues.map({ case (event, queue) => 
+      val messageType = typeArgumentOf(event.source)
+      q"val $queue = new _root_.java.util.concurrent.ConcurrentLinkedQueue[$messageType]"
+    })}
+
     ${names.subjectVal}
     """ 
   }
@@ -40,6 +57,7 @@ trait LockFreeTransform extends Transform {
 trait LockTransform extends Transform { 
   self: JoinMacro with Parse with RxJavaSubscribeService with Util =>
   import c.universe._
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   // names represents a global namespace 
   object names { 
@@ -63,26 +81,23 @@ trait LockTransform extends Transform {
         break
     }
    """
- }
+  }
 
-  def generateReturnExpression(patternBody: c.Tree): c.Tree = patternBody match {
-    case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), nextExpr) => q"""
+  def generateReturnExpression(patternBody: c.Tree): c.Tree = parsePatternBody(patternBody) match {
+    case (ReturnNext(returnExpr), block) => q"""
+      ..$block
       try {
-        ${names.subjectVal}.onNext(${nextExpr.head})
+        ${names.subjectVal}.onNext($returnExpr)
       } catch {
         case e: Throwable => ${names.subjectVal}.onError(e)
       }"""
-    case Select(_, TermName("Done")) => q"""
+    case (ReturnDone, block) => q"""
+      ..$block
       ${names.stop} = true
       ${names.subjectVal}.onCompleted()
       unsubscribe()
       """
-    case Select(_, TermName("Pass")) => EmptyTree 
-    case Apply(Select(_, TermName("unitToPass")), stats) => q"..$stats"
-    // ^ matches the implicit conversion from Unit to Pass
-    case other =>  
-      c.error(c.enclosingPosition, s"Join pattern has to return a value of type JoinReturn: Next(...), Done, or Pass. Got: $other")
-      EmptyTree
+    case (ReturnPass, block) => q"..$block"
   }
  
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
@@ -180,11 +195,8 @@ trait LockTransform extends Transform {
             ids = Ident(nextMessage.get) :: ids
           }
           val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
-
-          val patternBody = rawPatternBody match {
-            case Block(stats, lastExpr) => q"..$stats; ..${generateReturnExpression(lastExpr)}"
-            case _ => generateReturnExpression(rawPatternBody)
-          }
+          // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
+          val patternBody = generateReturnExpression(rawPatternBody)
           val requestMoreFromOccured = occuredEvent match {
             case event @ Next(source) if !unboundBuffer => 
               val occuredQueue = nextEventsToQueues.get(event).get
