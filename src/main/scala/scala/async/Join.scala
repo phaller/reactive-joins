@@ -46,6 +46,17 @@ object Join {
     def unsubscribe(): Unit
   }
 
+  // For the non-blocking implementation
+  case class Message[A](content: A) {
+    var status = Status.Pending
+    def tryClaim() = ???
+  }
+  object Status extends Enumeration {
+    val Pending = Value("Pending")
+    val Claimed = Value("Claimed")
+    val Consumed = Value("Consumed")
+  }
+
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]

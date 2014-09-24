@@ -22,19 +22,38 @@ trait LockFreeTransform extends Transform {
     val observablesToRequestables = 
       freshNames(observables, "requestable")
     val nextEventsToQueues = 
-      freshNames(events.collect({ case event: Next => event }), "queue")
+      freshNames(events.nexts, "queue")
     val errorEventsToVars = 
-      freshNames(events.collect({ case event: Error => event }), "error")
-    val eventCallbacks = events.toList.map(occuredEvent => 
-      occuredEvent -> ((nextMessage: Option[TermName]) => {
-        // Assume Next(x)
-        // Put a message into into queue
-        // Repeat until resolved
-        // try-to claim 
+      freshNames(events.errors, "error")
+    val nextEventCallbacks = events.nexts.toList.map(
+      occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
+        val myQueue = nextEventsToQueues.get(occuredEvent).get
+        val myPatterns = patterns.filter(pattern => pattern.events.contains(occuredEvent))
+        val message = fresh("message")
+        val backoff = fresh("backoff")
+        // q"""
+        // val $message = Message(${nextMessage.get})
+        // $myQueue.add($message)
+        // val $backoff = Backoff()
+        // while(true) {
+        //   // for all patterns this event is part of
+        //   // try to claim their buffer
+        //   // if successful 
+
+        //     $backoff.once()
+        //   }   
+        // if ($patternMatch.nonEmpty)) {
+        //   consumeAll($patternMatch.claims)
+        //   // Execute the body
+        //   // Call appropriate function (onNext, onDone, onError)
+        // }
+        // """
         EmptyTree
     }))
 
-    val subscriptions =  generateSubscriptions(eventCallbacks.toMap, 
+    val eventCallbacks = nextEventCallbacks
+
+    val subscriptions = generateSubscriptions(eventCallbacks.toMap, 
                             observablesToSubscriptions,
                             observablesToRequestables,
                             bufferSizeTree)
@@ -113,14 +132,14 @@ trait LockTransform extends Transform {
       patterns.map(p => p -> p.events.foldLeft(0L)(accumulateEventId)).toMap
     // We keep for every Next event a mutable Queue. We'll create names now, and declare the queues later.
     val nextEventsToQueues = 
-      freshNames(events.collect({ case event: Next => event }), "queue")
+      freshNames(events.nexts, "queue")
     // We keep for every Error event a variable to store the throwable it carries.
     // No larger buffer is needed as an Exeception can be thrown exactly once per source.
     // Notice: we do not need to buffer Done events since they do not carry a message,
     // and they happen only once per souce. Therefore no additional information needs to 
     // be stored other than their presence (which is already done so in the global state).
     val errorEventsToVars = 
-      freshNames(events.collect({ case event: Error => event }), "error")
+      freshNames(events.errors, "error")
     // Every observable is subscribered to once. This results in a subscription later used
     // to unsubscribe, and free resources. We therefore need to store that subscription.
     val observables = events.groupBy(e => e.source).map(_._1)
@@ -152,7 +171,7 @@ trait LockTransform extends Transform {
           val otherEvents = myPattern.events.toList.filter(otherEvent => otherEvent != occuredEvent)
           // We need vals to store the messages we dequeue from previous Next events
           val dequeuedMessageVals = 
-            freshNames(otherEvents.collect({ case event: Next => event }), "dequeuedMessage")
+            freshNames(otherEvents.nexts, "dequeuedMessage")
             .toList
           // Generate the deqeue statements. Further, update the state to reflect the removal of
           // the buffered events (set the event bit to 0 in case there are no more buffered messages).
@@ -173,7 +192,7 @@ trait LockTransform extends Transform {
               }""")
           })
           // Retrieve the names of the vars storing the Throwables of possibly involved Error events
-          val errorVars = otherEvents.collect({ case event: Error => event })
+          val errorVars = otherEvents.errors
             .map(event => event -> errorEventsToVars.get(event).get)
           // Replace the occurences of Next, and Error event binding variables in the pattern-body
           val combinedEvents = dequeuedMessageVals ++ errorVars
@@ -240,7 +259,6 @@ trait LockTransform extends Transform {
     // Assemble all parts into the full transform
     q"""
     import _root_.scala.util.control.Breaks._
-    import _root_.scala.collection.mutable
 
     var ${names.stateVar} = 0L
     val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock
@@ -250,7 +268,7 @@ trait LockTransform extends Transform {
     // Queue declarations for Next event messages
     ..${nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)
-        q"val $queueName = mutable.Queue[$messageType]()"
+        q"val $queueName = _root_.scala.collection.mutable.Queue[$messageType]()"
       })}
 
     // Variable declarations to store Error event messages (throwables)

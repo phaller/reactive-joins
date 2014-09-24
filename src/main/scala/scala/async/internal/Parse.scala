@@ -3,6 +3,7 @@ package scala.async.internal
 trait Parse {
   self: JoinMacro =>
   import c.universe._
+  import scala.language.implicitConversions
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   // Abstract Syntax Trees for the partifal-function join-syntax
@@ -28,6 +29,14 @@ trait Parse {
       case _ => false
     }
     override def hashCode: Int = 41 * (41 + events.hashCode) + guardTree.hashCode
+  }
+
+  // Helps to keep to code cleaner as filtering for differnt Event types
+  // is used a lot, and the collect statements are quiet verbose
+  implicit class EventTraversable(events: Traversable[Event]) {
+    def nexts = events.collect({ case event: Next => event })
+    def errors = events.collect({ case event: Error => event })
+    def dones = events.collect({ case event: Done => event })
   }
 
   // Transforms a CaseDef-Tree into a PatternTree, and additionaly returns 
