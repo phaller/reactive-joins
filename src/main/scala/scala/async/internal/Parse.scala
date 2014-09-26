@@ -6,7 +6,7 @@ trait Parse {
   import scala.language.implicitConversions
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
-  // Abstract Syntax Trees for the partifal-function join-syntax
+  // Abstract Syntax Trees for the partial-function join-syntax
   sealed trait PatternTree
   sealed trait BinaryOperator extends PatternTree
   case class And(left: PatternTree, right: PatternTree) extends BinaryOperator
@@ -32,7 +32,7 @@ trait Parse {
   }
 
   // Helps to keep to code cleaner as filtering for differnt Event types
-  // is used a lot, and the collect statements are quiet verbose
+  // is used a lot, and the collect statements make the code more verbose
   implicit class EventTraversable(events: Traversable[Event]) {
     def nexts = events.collect({ case event: Next => event })
     def errors = events.collect({ case event: Error => event })
@@ -73,7 +73,7 @@ trait Parse {
     }
   }
 
-  // Extracts events from PatternTrees
+  // Extracts events from PatternTrees (Ignore the "And", and "Or" nodes)
   private def extractEvents(patternTree: PatternTree): Set[Event] = patternTree match {
     case And(left, right) => extractEvents(left) ++ extractEvents(right)
     case Or(left, right) => extractEvents(left) ++ extractEvents(right)
@@ -101,17 +101,19 @@ trait Parse {
     patterns
   }
 
- // Parse a pattern-body for the action the user wants to perform, also returns the other statement to be executed
- // before the JoinReturn action, which is only Next, Done, or Pass
+ // Parse a pattern-body for the action the user wants to perform, also returns the statements to be executed
+ // before the JoinReturn action. (JoinReturn actions are only Next, Done, or Pass, but there might be other
+ // code to be exectued before this JoinReturn action.)
  def parsePatternBody(patternBody: c.Tree): (JoinReturn[c.Tree], List[c.Tree]) = patternBody match {
     case Block(stats, lastExpr) => (parseReturnStatement(lastExpr), stats)
     case Apply(Select(_, TermName("unitToPass")), stats) => (ReturnPass, stats)
     // ^ matches the implicit conversion from Unit to Pass
     case _ => (parseReturnStatement(patternBody), List(EmptyTree))
+    // ^ should match only single expressions
   }
 
-  // Returns a representation of what the user wanted us to do in a pattern body. If it's a next, then the expression
-  // of what a user wanted to send (e.g. the x in Next(x)) is returned as JoinReturn[c.Tree].
+  // Returns a representation of what Subject action the user wanted us to execute in a pattern body. If it's a Next, then the expression
+  // of what a user wanted to send (e.g. the x in Next(x)) is returned as JoinReturn[c.Tree], otherwise "JoinReturn[Nothing] are returned
   private def parseReturnStatement(statement: c.Tree): JoinReturn[c.Tree] = statement match {
     case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), stats) => ReturnNext(stats.head)
     case Select(_, TermName("Done")) => ReturnDone

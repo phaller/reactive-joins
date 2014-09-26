@@ -5,8 +5,8 @@ trait Util {
   import c.universe._
   import scala.async.internal.Debug
 
-  // Returns the only type argument of a symbol.
-  // For example: the only type argument of "Observable[Int]" is "Int". Calling 
+  // Returns the first type argument of a symbol.
+  // For example: the first type argument of "Observable[Int]" is "Int". Calling 
   // the method with a symbol that has no type argument will and 
   // should cause a error.
   def typeArgumentOf(sym: Symbol) = 
