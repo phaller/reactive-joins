@@ -47,9 +47,9 @@ object Join {
   }
 
   // For the non-blocking implementation
-  case class Message[A](content: A) {
-    var status = Status.Pending
-    def tryClaim() = ???
+  case class Message[A](content: A) extends AbstractMessage {
+    updateState(null, Status.Pending)
+    def tryClaim(): Boolean = updateState(Status.Pending, Status.Claimed)
   }
   object Status extends Enumeration {
     val Pending = Value("Pending")
