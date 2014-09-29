@@ -5,7 +5,7 @@ package scala.async;
 import scala.concurrent.util.Unsafe;
 
 abstract class AbstractMessage {
-  private volatile Object _ref;
+  protected volatile Object _ref;
   final static long _refoffset;
   // Static initializer: executed when the class is loaded.
   static {
