@@ -27,99 +27,10 @@ trait LockFreeTransform extends Transform {
       freshNames(events.errors, "error")
     val doneEventsToVars = 
       freshNames(events.dones, "done")
-    val nextEventCallbacks = events.nexts.toList.map(
-      occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
-        val myQueue = nextEventsToQueues.get(occuredEvent).get
-        val myPatterns = patterns.filter(pattern => pattern.events.contains(occuredEvent))
-        myPatterns.map(pattern => {
-          def patternCheck(pattern: Pattern): c.Tree = {
-            pattern.events.toSeq.map(event => {
-              val head = fresh("head")
-              val queue = nextEventsToQueues.get(event).get
-              q"""
-              val $head = $queue.peek()
-              if ($head == null) {
-                return Right(false)
-              } else if ($head.Status() == Status.claimed) {
-                return Right(true)
-              } else if($head.Status() == Status.pending) {
-                msgs = head :: msgs
-              }
-              """
-            })
-          }
-         
-        })
-        val backoff = fresh("backoff")
-        val retry = fresh("retry")
-        q"""
-        def checkPattern(p: Pattern): Either[Seq[Message[Any]], Boolean] = {
-      
-          // Find pending head messages in the required buffer
-          def findPending: Either[Seq[Message[Any]], Boolean] = {
-            var msgs = Seq[Message[Any]].Empty
-            // repeat for each involved event!!
-            val $head = $queue.peek()
-             if ($head == null) {
-              return Right(false)
-            } else if ($head.Status() == Status.claimed) {
-              return Right(true)
-            } else if($head.Status() == Status.pending) {
-              msgs = head :: msgs
-            }
-            Left(msgs)
-          }
-
-          // Try to claim them, roll-back if failed, return messages
-          findPending match {
-            case Right(x) => return Right(x)
-            case Left(msgs) => {
-              val claimed = msgs.map(msg => if (!msg.tryClaim()) msg))
-              if (claimed.size != msgs.size) {
-                claimed.foreach(_.unclaim())
-                return Right(true)
-              } else {
-                // maybe, dequeue them? Or immediately match here?
-                return Left(claimed)
-              }
-            }
-          }
-        }
-
-        // YOU WERE HERE: YOU NEED TO MACROIFY THIS CODE + Done / Error
-        val $backoff = _root_.scala.async.Join.internal.Backoff()
-        $myQueue.add(_root_.scala.async.Join.Message(${nextMessage.get}))
-
-        @tailrec
-        def resolve() = {
-          var $retry = false
-          myPatterns.foreach(p => {
-            checkPattern(p) match {
-              case Left(match) => 
-                // MATCH
-                return
-              case Right(true) => { retry = true }
-            }
-          })
-          if ($retry) {
-            $backoff.once()
-            resolve()
-          }
-        }
-        resolve()
-        """
-        EmptyTree
-    }))
-
-    val eventCallbacks = nextEventCallbacks
-
-    val subscriptions = generateSubscriptions(eventCallbacks.toMap, 
-                            observablesToSubscriptions,
-                            observablesToRequestables,
-                            bufferSizeTree)
-
     val resultType = implicitly[WeakTypeTag[A]].tpe
     q"""
+    import scala.internal.imports._
+    
     val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
     
     ..${nextEventsToQueues.map({ case (event, queue) => 

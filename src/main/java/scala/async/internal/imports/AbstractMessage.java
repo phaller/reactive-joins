@@ -1,6 +1,6 @@
 // Source: https://github.com/scala/scala/blob/2.11.x/src/library/scala/concurrent/impl/AbstractPromise.java
 // We need to use Java because the Unsafe.CAS requires static fields which do not exist in Scala.
-package scala.async;
+package scala.async.internal.imports;
 
 import scala.concurrent.util.Unsafe;
 

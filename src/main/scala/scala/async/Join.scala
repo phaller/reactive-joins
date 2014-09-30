@@ -3,7 +3,6 @@ package scala.async
 import language.experimental.macros
 import scala.language.implicitConversions
 
-import scala.concurrent.{Future, Promise}
 import rx.lang.scala.Observable
 
 // Enables join-syntax for Observables in partial-functions
@@ -38,32 +37,11 @@ object Join {
     def p = JoinObservable(obs)
   }
 
-  // Types used by the macro in the transform
-  trait Requestable { 
-    def requestMore(n: Long): Unit
-  }
-
-  trait Unsubscribable {
-    def unsubscribe(): Unit
-  }
-
-  // For the non-blocking implementation
-  case class Message[A](content: A) extends AbstractMessage {
-    updateState(null, Status.Pending)
-    def tryClaim(): Boolean = updateState(Status.Pending, Status.Claimed)
-    // Only call unclaim on messages with the thread which has claimed them
-    def unclaim() = { _ref = Status.Pending }
-    def status: Status = getState().asInstanceOf[Status]
-  }
-  object Status extends Enumeration {
-    val Pending = Value("Pending")
-    val Claimed = Value("Claimed")
-  }
-
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]
   case object Pass extends JoinReturn[Nothing]
+  implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass
 
   case class BufferSize(size: Long) {
     require(size > 0, "Buffer size needs to be at least 1")
@@ -74,7 +52,6 @@ object Join {
     implicit val defaultBufferSize = BufferSize(Long.MaxValue)
   }
 
-  implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass
-
   def join[A](pf: PartialFunction[JoinObservable[_], JoinReturn[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
+
 }

@@ -1,8 +1,7 @@
 // Exponential backoff
 
 // Taken, and adapted from ChemistrySet, see: https://github.com/aturon/ChemistrySet
-
-package scala.async
+package scala.async.internal.imports
 
 import scala.util._
 
