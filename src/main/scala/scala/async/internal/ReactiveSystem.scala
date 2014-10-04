@@ -14,7 +14,7 @@ trait ReactiveSystem {
     onDone: Option[EventCallback],
     initialRequest: Option[Tree]): Tree 
 
-  def subscribe(publisher: TermName, subscriber: TermName): Tree
+  def subscribe(joinObservable: TermName, subscriber: TermName): Tree
   def unsubscribe(subscriber: TermName): Tree
   def requestMore(subscriber: TermName, value: Tree): Tree
 
@@ -29,8 +29,9 @@ trait RxJavaSystem extends ReactiveSystem {
   self: JoinMacro =>
   import c.universe._
 
+
   def createVariableStoringSubscriber: (TermName, Type) => Tree = 
-    (name: TermName, tpe: Type) => q"var $name: _root_.rx.lang.scala.Subscriber[$tpe] with _root_.rx.lang.scala.SubscriberAdapter[$tpe] = null"
+    (name: TermName, tpe: Type) => q"var $name: _root_.scala.async.internal.imports.SubscriberAdapter[$tpe] = null"
   
   def createSubscriber(
     onNext: (Option[EventCallback], Type), 
@@ -66,7 +67,7 @@ trait RxJavaSystem extends ReactiveSystem {
     }
     val overrideStart = q"override def onStart(): Unit = $start"
     q"""
-    new _root_.rx.lang.scala.Subscriber[$onNextTpe] with _root_.rx.lang.scala.SubscriberAdapter[$onNextTpe] {
+    new _root_.scala.async.internal.imports.SubscriberAdapter[$onNextTpe] {
       $overrideStart
       $overrideNext
       $overrideError
@@ -76,13 +77,12 @@ trait RxJavaSystem extends ReactiveSystem {
     """
   }
 
-  def subscribe(publisher: TermName, subscriber: TermName): Tree = q"$publisher.subscribe($subscriber)"
+  def subscribe(joinObservable: TermName, subscriber: TermName): Tree = q"$joinObservable.observable.subscribe($subscriber)"
   def unsubscribe(subscriber: TermName): Tree = q"$subscriber.unsubscribe()"
-  def requestMore(subscriber: TermName, value: Tree): Tree = q"$subscriber.requestMore($value)"
+  def requestMore(subscriber: TermName, value: Tree): Tree = q"$subscriber.asInstanceOf[_root_.scala.async.internal.imports.SubscriberAdapter[_]].requestMore($value)"
 
-  def createPublisher(onSubscribe: Tree, argument: TermName, tpe: Type): Tree = q"""
-    _root_.rx.lang.scala.Observable(($argument: $tpe) => { $onSubscribe })
-  """
+  def createPublisher(onSubscribe: Tree, argument: TermName, tpe: Type): Tree = 
+    q"_root_.rx.lang.scala.Observable(($argument: _root_.rx.lang.scala.Subscriber[$tpe]) => { $onSubscribe })"
 
   def next(subscriber: TermName, value: Tree): Tree = q"$subscriber.onNext($value)"
   def error(subscriber: TermName, throwable: Tree): Tree = q"$subscriber.onError($throwable)"
