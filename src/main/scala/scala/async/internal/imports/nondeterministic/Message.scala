@@ -1,4 +1,4 @@
-package scala.async.internal.imports
+package scala.async.internal.imports.nondeterministic
 
 case class Message[A](content: A) extends AbstractMessage {
   updateState(null, Status.Pending)

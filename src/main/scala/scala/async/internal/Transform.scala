@@ -8,38 +8,18 @@ trait Transform {
 trait LockFreeTransform extends Transform {
   self: JoinMacro with Parse with RxJavaSubscribeService => 
   import c.universe._
-  // names represents a global namespace 
-  object names { 
-    val subjectVal = fresh("subject")
-  }
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
     val events: Set[Event] = uniqueEvents(patterns)
     val observables = events.groupBy(e => e.source).map(_._1)
-    val observablesToSubscriptions =
-      freshNames(observables, "subscription")
-    val observablesToRequestables = 
-      freshNames(observables, "requestable")
-    val nextEventsToQueues = 
       freshNames(events.nexts, "queue")
     val errorEventsToVars = 
       freshNames(events.errors, "error")
     val doneEventsToVars = 
       freshNames(events.dones, "done")
     val resultType = implicitly[WeakTypeTag[A]].tpe
-    q"""
-    import scala.internal.imports._
-    
-    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
-    
-    ..${nextEventsToQueues.map({ case (event, queue) => 
-      val messageType = typeArgumentOf(event.source)
-      q"val $queue = new _root_.java.util.concurrent.ConcurrentLinkedQueue[$messageType]"
-    })}
-
-    ${names.subjectVal}
-    """ 
+    EmptyTree
   }
 }
 
@@ -48,11 +28,10 @@ trait LockTransform extends Transform {
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
-  // names represents a global namespace 
+  // names represents a "global" namespace where TermNames can be stored to be used across the functions involved in the transform
   object names { 
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")
-    val subjectVal = fresh("subject")
     val stop = fresh("stop")
   }
 
@@ -107,21 +86,16 @@ trait LockTransform extends Transform {
     // We keep for every Error event a variable to store the throwable it carries.
     // No larger buffer is needed as an Exeception can be thrown exactly once per source.
     // Notice: we do not need to buffer Done events since they do not carry a message,
-    // and they happen only once per souce. Therefore no additional information needs to 
+    // and they happen only once per source. Therefore no additional information needs to 
     // be stored other than their presence (which is already done so in the global state).
     val errorEventsToVars = 
       freshNames(events.errors, "error")
-    // Every observable is subscribered to once. This results in a subscription later used
-    // to unsubscribe, and free resources. We therefore need to store that subscription.
+    // Every observable is subscribered to with a subscriber. It can later be used as a handle
+    // to unsubscribe, and request more items. We therefore need to store subscribers.
     val observables = events.groupBy(e => e.source).map(_._1)
-    val observablesToSubscriptions =
-      freshNames(observables, "subscription")
-    // We need to store the subscriber to every observable so that we can handle back-pressure
-    val observablesToRequestables = 
-      freshNames(observables, "requestable")
-    // We generate a callback for every event of type Next/Error/Done. (NextFilter
-    // are a special case of Next, and handled within the callbacks of the Next event
-    // with the same source-symbol (i.e. the same Observable)).
+    val observablesToSubscribers =
+      freshNames(observables, "subscribers")
+    // We generate a callback for every event of type Next/Error/Done. 
     val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
       val possibleStateVal = fresh("possibleState")
       val myPatterns = patterns.filter(pattern => pattern.events.contains(occuredEvent))
@@ -151,10 +125,8 @@ trait LockTransform extends Transform {
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
             val requestMoreStats = if (unboundBuffer) EmptyTree else {
-              val requestable = observablesToRequestables.get(event.source).get
-              q"""
-               $requestable.requestMore($bufferSizeTree)
-              """
+              val subscriber = observablesToSubscribers.get(event.source).get
+              requestMore(subscirber, bufferSizeTree)
             }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
@@ -180,10 +152,11 @@ trait LockTransform extends Transform {
           val requestMoreFromOccured = occuredEvent match {
             case event @ Next(source) if !unboundBuffer => 
               val occuredQueue = nextEventsToQueues.get(event).get
-              val occuredRequestable = observablesToRequestables.get(source).get
+              val occurredSubscriber = observablesToSubscribers.get(source).get
+              val requestStatement = requestMore(occurredSubscriber, bufferSizeTree)
               q"""
               if ($occuredQueue.isEmpty) {
-                $occuredRequestable.requestMore($bufferSizeTree)
+                $requestStatement
               }
               """
             case _ => EmptyTree
@@ -219,42 +192,55 @@ trait LockTransform extends Transform {
         }
       """
     }))
-    // Generate unsubscribable for RxJava
-    val subscriptions = 
-      generateSubscriptions(eventCallbacks.toMap, 
-                            observablesToSubscriptions,
-                            observablesToRequestables,
-                            bufferSizeTree)
+    // TODO: Explain why we need to createVariableStoringSubscriber mechanism.
+    val subscriberVarDeclarations = observablesToSubscribers.map({ case (_, subscriber) =>
+      createVariableStoringSubscriber(subscriber)
+    })
+
+    // YOU WERE HERE: Create the Subscribers
+    val subscriberDeclarations = ???
+
+    val subscriptions = observablesToSubscribers({ case (observable, subscriber) =>
+      subscribe(observable, subscriber)
+    })
+
+
     // Resolve the type of elements the generated observable will emit
     val resultType = implicitly[WeakTypeTag[A]].tpe
-    // Assemble all parts into the full transform
-    q"""
-    import _root_.scala.util.control.Breaks._
-
-    var ${names.stateVar} = 0L
-    val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock
-    val ${names.subjectVal} = _root_.rx.lang.scala.subjects.ReplaySubject[$resultType]()
-    var ${names.stop} = false
-
-    // Queue declarations for Next event messages
-    ..${nextEventsToQueues.map({ case (event, queueName) =>
+    // Queue declarations for buffering Next event messages
+    val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)
         q"val $queueName = _root_.scala.collection.mutable.Queue[$messageType]()"
-      })}
-
-    // Variable declarations to store Error event messages (throwables)
-    ..${errorEventsToVars.map({ case (_, varName) => 
+    })
+    // Variable declarations for storing Error event messages (throwables)
+    val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
         q"var $varName: Throwable = null"
-    })}
+    })
+    
+    // TODO: How to unsubscribe...
+    // def unsubscribe() = {..${
+    //   observablesToSubscriptions.map({ case (_, s) => q"""
+    //     $s.unsubscribe()
+    // """})}}
 
-    ..$subscriptions
-  
-    def unsubscribe() = {..${
-      observablesToSubscriptions.map({ case (_, s) => q"""
-        $s.unsubscribe()
-    """})}}
+    // OnSubscribe will be called for every new subscriber to our joined Observable
+    val onSubscribe = (subjectVal: TermName) = q"""
+      import _root_.scala.util.control.Breaks._
 
-    ${names.subjectVal}
+      val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock()
+      var ${names.stateVar} = 0L
+      var ${names.stop} = false
+
+      ..$queueDeclarations
+
+      ..$errorVarDeclarations
+      
+      ..$subscriberVarDeclarations
+
+      ..$subscriberDeclarations
+
+      ..$subscriptions
     """
+    createPublisher(onSubscribe)
   }
 }

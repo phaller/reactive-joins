@@ -1,31 +1,30 @@
 package scala.async.internal 
 
 trait ReactiveSystem {
+
+  def createVariableStoringSubscriber: (TermName) => Tree
+
+  type EventCallback = Option[TermName] => Tree
+
+  def createSubscriber(
+    onNext: (Option[EventCallback], Type), 
+    onError: Option[EventCallback], 
+    onDone: Option[EventCallback],
+    initialRequest: Option[Tree]): Tree
+
+  def createPublisher(onSubscribe: TermName => Tree): Tree
+
+  def subscribe(
+    publisher: Tree, 
+    subscriber: Tree, 
+    initalRequest: Option[Tree]): Tree
   
-  // not sure about the type parameter
-  type Publisher
-  type Processor
-  type Subscriber
+  def unsubscribe(subscriber: Tree): Tree
+  def requestMore(subscriber: Tree, count: Tree): Tree
 
-  trait Ops {
-    def createSubscriber(
-      onNext: Option[Expr[A => Unit]], 
-      onError: Option[Expr[Throwable => Unit]], 
-      onDone: Option[ => Expr[Unit]]): Expr[Subscriber]
-
-    def subscribe(
-      publisher: Expr[Publisher[A]], 
-      subscriber: Expr[Subscriber], 
-      initalRequest: Option[Expr[Long]]): Expr[Unit]
-    
-    def unsubscribe(handle: Expr[Subscriber]): Expr[Unit]
-    def requestMore(handle: Expr[Subscriber], count: Expr[Long]): Expr[Unit]
-
-    def createProcessor[A](firstSubscribe: [Expr[Unit]]): Expr[Processor]
-    def next(s: Expr[Processor[B]], Expr[B]): Expr[Unit]
-    def error(s: Expr[Processor[B]], Expr[Throwable]): Expr[Unit]
-    def done(s: Expr[Processor[B]]): Expr[Unit]
-  }
+  def next(subscriber: Tree, value: Tree): Tree
+  def error(subscriber: Tree, throwable: Tree): Tree
+  def done(subscriber: Tree): Tree
 }
 
 trait RxJavaSystem extends ReactiveSystem {
@@ -33,11 +32,61 @@ trait RxJavaSystem extends ReactiveSystem {
 
   import c.universe._
 
-  type Publisher = rx.lang.scala.Observable[A]
-  type Processor = rx.lang.scala.Subject[B]
-  type Subscriber = RequestableSubscriber
-
-  trait RequestableSubscriber extends rx.lang.scla.Subscriber[A] {
-    def requestMore(n: Long) = request(n) // thread safe?
+  def createVariableStoringSubscriber: (TermName) => Tree = 
+    (name: TermName) => q"var $name: _root_.rx.lang.scala.Subscriber[$onNextTpe] with _root_.rx.lang.scala.SubscriberAdapter[$onNextTpe] = null"
+  
+  def createSubscriber(
+    onNext: (Option[EventCallback], Type), 
+    onError: Option[EventCallback], 
+    onDone: Option[EventCallback],
+    initialRequest: Option[Tree]): Tree = {
+    val nextMessage = fresh("nextMessage")
+    val errorMessage = fresh("errorMessage")
+    // onNext
+    val (onNextCallback, onNextTpe) = onNext
+    val next = onNextCallback match {
+      case Some(callback) => 
+        q"${callback(Some(nextMessage))}"
+      case None => q"()"
+    }
+    val overrideNext = q"override def onNext($nextMessage: $onNextTpe): Unit = $next"
+    // onError
+    val error = onError match {
+      case Some(callback) => q"${callback(Some(errorMessage))}"
+      case None =>  q"()"
+    }
+    val overrideError = q"override def onError($errorMessage: Throwable): Unit = $error"
+    // onDone
+    val done = onDone match {
+      case Some(callback) =>  q"${callback(None)}"
+      case None => q"()"
+    }
+    val overrideDone = q"override def onCompleted(): Unit = $done"
+    // onStart
+    val start = initialRequest match {
+      case Some(init) => q"request($init)"
+      case None => q"()"
+    }
+    val overrideStart = q"override def onStart(): Unit = $start"
+    q"""
+    new _root_.rx.lang.scala.Subscriber[$onNextTpe] with _root_.rx.lang.scala.SubscriberAdapter[$onNextTpe] {
+      $overrideStart
+      $overrideNext
+      $overrideError
+      $overrideDone
+      def requestMore(n: Long) = request(n)
+    }
+    """
   }
+  def subscribe(publisher: Tree, subscriber: Tree): Tree = q"($publisher).subscribe($subscriber)"
+  def unsubscribe(subscriber: Tree): Tree = q"($subscriber).unsubscribe()"
+  def requestMore(subscriber: Tree, value: Tree) = q"($subscriber).requestMore($value)"
+
+  def createPublisher(onSubscribe: TermName => Tree): Tree = q"""
+    _root_.rx.lang.scala.Observable.create(${onSubscribe(fresh("subscriber"))})
+  """
+
+  def next(subscriber: Tree, value: Tree): Tree = q"$subscriber.onNext($value)"
+  def error(subscriber: Tree, throwable: Tree): Tree = q"$subscriber.onError($throwable)"
+  def done(subscriber: Tree): Tree = q"$subscriber.onCompleted()"
 }

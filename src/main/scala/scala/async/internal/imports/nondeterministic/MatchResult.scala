@@ -1,4 +1,4 @@
-package scala.async.internal.imports
+package scala.async.internal.imports.nondeterministic
 
 sealed trait MatchResult
 case object Matched extends MatchResult
