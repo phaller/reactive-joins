@@ -65,6 +65,7 @@ class MultaryTests {
     assert(result.filter(x => !x).size == half)
   }
 
+  // TODO: Figure out why this does not work anymore after moving to Observable.create?
   // @Test
   // def joinRespectsPatternOrder() = {
   //   import rx.lang.scala.JavaConversions._
@@ -85,18 +86,23 @@ class MultaryTests {
   //   val o3 = toScalaObservable[Int](s3).observeOn(testScheduler).p
 
   //   val obs = join {
-  //     case o1(x) && o2(y) => Next(true)
-  //     case o1(x) && o3(y) => Done
+  //     case o1(x) && o2(y) => Next(1)
+  //     case o1(x) && o3(y) => Next(2)
+  //     case o1.done && o2.done && o3.done => Done
   //   }
+
+  //   obs.subscribe(println(_))
 
   //   s2.onNext(2, 1)
   //   s3.onNext(3, 1)
   //   s1.onNext(1, 2)
   //   s1.onNext(1, 2)
+  //   s1.onCompleted(3)
+  //   s2.onCompleted(3)
+  //   s3.onCompleted(3)
 
-  //   testScheduler.advanceTimeTo(1, TimeUnit.MILLISECONDS)
-  //   testScheduler.advanceTimeTo(2, TimeUnit.MILLISECONDS)
+  //   testScheduler.triggerActions()
 
-  //   assert(obs.toBlocking.toList.head)
+  //   assert(obs.toBlocking.toList == List(1, 2))
   // }
 }
