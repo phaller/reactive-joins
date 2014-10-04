@@ -6,7 +6,7 @@ trait Transform {
 }
 
 trait LockFreeTransform extends Transform {
-  self: JoinMacro with Parse with RxJavaSubscribeService => 
+  self: JoinMacro with Parse with ReactiveSystem => 
   import c.universe._
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
@@ -24,18 +24,19 @@ trait LockFreeTransform extends Transform {
 }
 
 trait LockTransform extends Transform { 
-  self: JoinMacro with Parse with RxJavaSubscribeService with BackPressure with Util =>
+  self: JoinMacro with Parse with ReactiveSystem with BackPressure with Util =>
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   // names represents a "global" namespace where TermNames can be stored to be used across the functions involved in the transform
-  object names { 
+  object names {
+    val outSubscriber = fresh("outSubscriber")
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")
     val stop = fresh("stop")
   }
 
-  def generatePatternCheck(patternId: Long, state: TermName, patternGuard: c.Tree) = (body: c.Tree, continuation: c.Tree) => {
+  def generatePatternCheck(patternId: Long, state: TermName, patternGuard: Tree) = (body: c.Tree, continuation: c.Tree) => {
     val checkPatternTree = q"(~$state & $patternId) == 0"
     val matchExpression = patternGuard match {
       case EmptyTree => checkPatternTree
@@ -51,24 +52,25 @@ trait LockTransform extends Transform {
    """
   }
 
-  def generateReturnExpression(patternBody: c.Tree): c.Tree = parsePatternBody(patternBody) match {
-    case (ReturnNext(returnExpr), block) => q"""
+  def generateReturnExpression(patternBody: Tree): Tree = parsePatternBody(patternBody) match {
+    case (ReturnNext(returnExpr), block) => 
+      val exceptionName = fresh("ex")
+      q"""
       ..$block
       try {
-        ${names.subjectVal}.onNext($returnExpr)
+        ${next(names.outSubscriber, returnExpr)}
       } catch {
-        case e: Throwable => ${names.subjectVal}.onError(e)
+        case $exceptionName: Throwable => ${error(names.outSubscriber, q"$exceptionName")}
       }"""
     case (ReturnDone, block) => q"""
       ..$block
       ${names.stop} = true
-      ${names.subjectVal}.onCompleted()
-      unsubscribe()
+      ${done(names.outSubscriber)}
       """
     case (ReturnPass, block) => q"..$block"
   }
  
-  override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
+  override def joinTransform[A: c.WeakTypeTag](pf: Tree): Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
     // Collect unique events from patterns 
@@ -126,7 +128,7 @@ trait LockTransform extends Transform {
             val queue = nextEventsToQueues.get(event).get
             val requestMoreStats = if (unboundBuffer) EmptyTree else {
               val subscriber = observablesToSubscribers.get(event.source).get
-              requestMore(subscirber, bufferSizeTree)
+              requestMore(subscriber, bufferSizeTree)
             }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
@@ -193,20 +195,27 @@ trait LockTransform extends Transform {
       """
     }))
     // TODO: Explain why we need to createVariableStoringSubscriber mechanism.
-    val subscriberVarDeclarations = observablesToSubscribers.map({ case (_, subscriber) =>
-      createVariableStoringSubscriber(subscriber)
+    val subscriberVarDeclarations = observablesToSubscribers.map({ case (observable, subscriber) =>
+      val obsTpe = typeArgumentOf(observable)
+      createVariableStoringSubscriber(subscriber, obsTpe)
     })
-
-    // YOU WERE HERE: Create the Subscribers
-    val subscriberDeclarations = ???
-
-    val subscriptions = observablesToSubscribers({ case (observable, subscriber) =>
-      subscribe(observable, subscriber)
+    // Group the event call backs we created by their source observable
+     val observablesToEventCallbacks = 
+      eventCallbacks.groupBy({ case (event, _) => event.source })
+    // Create a Subscriber for every observable
+    val subscriberDeclarations = observablesToEventCallbacks.map({ case (obsSym, events) => 
+      val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
+      val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
+      val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
+      val nextMessageType = typeArgumentOf(obsSym)
+      val subscriberDecl = createSubscriber((next, nextMessageType), error, done, Some(bufferSizeTree))
+      val subscriberVar = observablesToSubscribers.get(obsSym).get
+      q"$subscriberVar = $subscriberDecl"
     })
-
-
-    // Resolve the type of elements the generated observable will emit
-    val resultType = implicitly[WeakTypeTag[A]].tpe
+    // We generate code which subscribes the created subscribers to their observable
+    val subscriptions = observablesToSubscribers.map({ case (observable, subscriber) =>
+      subscribe(observable.asTerm.name, subscriber)
+    })
     // Queue declarations for buffering Next event messages
     val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)
@@ -216,31 +225,21 @@ trait LockTransform extends Transform {
     val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
         q"var $varName: Throwable = null"
     })
-    
     // TODO: How to unsubscribe...
-    // def unsubscribe() = {..${
-    //   observablesToSubscriptions.map({ case (_, s) => q"""
-    //     $s.unsubscribe()
-    // """})}}
-
     // OnSubscribe will be called for every new subscriber to our joined Observable
-    val onSubscribe = (subjectVal: TermName) = q"""
+    val onSubscribe = q"""
       import _root_.scala.util.control.Breaks._
-
       val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock()
       var ${names.stateVar} = 0L
       var ${names.stop} = false
-
       ..$queueDeclarations
-
       ..$errorVarDeclarations
-      
       ..$subscriberVarDeclarations
-
       ..$subscriberDeclarations
-
       ..$subscriptions
     """
-    createPublisher(onSubscribe)
+    // Find the type of elements the generated observable will emit
+    val resultType = implicitly[WeakTypeTag[A]].tpe
+    createPublisher(onSubscribe, names.outSubscriber, resultType)
   }
 }
