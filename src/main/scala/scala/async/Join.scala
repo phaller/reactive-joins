@@ -3,15 +3,14 @@ package scala.async
 import language.experimental.macros
 import scala.language.implicitConversions
 
-import scala.concurrent.{Future, Promise}
 import rx.lang.scala.Observable
 
 // Enables join-syntax for Observables in partial-functions
 
 // Be very careful when changing any names in this object: you'll need 
 // to refactor many pattern-matches where the distinct types are recognized by
-// matching against hard-coded TermNames. For example: Done is could
-// be matched against by with "Select(_, TermName("Done"))".
+// matching against hard-coded TermNames. For example: Done would
+// be matched against using "Select(_, TermName("Done"))".
 object Join {
 
   class JoinObservable[A](val observable: Observable[A]) {
@@ -42,9 +41,17 @@ object Join {
   case class Next[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]
   case object Pass extends JoinReturn[Nothing]
-
   implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass
 
+  case class BufferSize(size: Long) {
+    require(size > 0, "Buffer size needs to be at least 1")
+  }
+  object BufferSize {
+    // Be very careful when changing these names, as they are matched against.
+    // Buffersize of Long.MaxValue means unbounded buffer!
+    implicit val defaultBufferSize = BufferSize(Long.MaxValue)
+  }
+
   def join[A](pf: PartialFunction[JoinObservable[_], JoinReturn[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
-  
+
 }
