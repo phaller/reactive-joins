@@ -33,7 +33,6 @@ trait LockTransform extends Transform {
     val outSubscriber = fresh("outSubscriber")
     val stateVar = fresh("state")
     val stateLockVal = fresh("stateLock")
-    val stop = fresh("stop")
   }
 
   def generatePatternCheck(patternId: Long, state: TermName, patternGuard: Tree) = (body: c.Tree, continuation: c.Tree) => {
@@ -52,24 +51,27 @@ trait LockTransform extends Transform {
    """
   }
 
-  def generateReturnExpression(patternBody: Tree): Tree = parsePatternBody(patternBody) match {
-    case (ReturnNext(returnExpr), block) => 
+  def generateReturnExpression(patternBody: Tree, afterDone: Option[Tree] = None): Tree = parsePatternBody(patternBody) match {
+    case (ReturnNext(returnExpr), block) =>
       val exceptionName = fresh("ex")
       q"""
       ..$block
       try {
         ${next(names.outSubscriber, returnExpr)}
       } catch {
-        case $exceptionName: Throwable => ${error(names.outSubscriber, q"$exceptionName")}
+        case $exceptionName: Throwable => 
+        ${error(names.outSubscriber, q"$exceptionName")}
       }"""
     case (ReturnDone, block) => q"""
       ..$block
-      ${names.stop} = true
       ${done(names.outSubscriber)}
+      ${afterDone.getOrElse(EmptyTree)}
       """
-    case (ReturnPass, block) => q"..$block"
+    case (ReturnPass, block) => q"""
+      ..$block
+      """
   }
- 
+
   override def joinTransform[A: c.WeakTypeTag](pf: Tree): Tree = {
     // Use the constructs defined the Parse trait as representations of Join-Patterns.
     val patterns: Set[Pattern] = parse(pf)  
@@ -97,6 +99,8 @@ trait LockTransform extends Transform {
     val observables = events.groupBy(e => e.source).map(_._1)
     val observablesToSubscribers =
       freshNames(observables, "subscribers")
+    // This block will be called once the joined observable has completed
+    val unsubscribeAllBlock = q"..${observablesToSubscribers.map({ case (_, subscriber) => unsubscribe(subscriber) })}"
     // We generate a callback for every event of type Next/Error/Done. 
     val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
       val possibleStateVal = fresh("possibleState")
@@ -150,7 +154,7 @@ trait LockTransform extends Transform {
           }
           val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
           // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
-          val patternBody = generateReturnExpression(rawPatternBody)
+          val patternBody = generateReturnExpression(rawPatternBody, afterDone = Some(unsubscribeAllBlock))
           val requestMoreFromOccured = occuredEvent match {
             case event @ Next(source) if !unboundBuffer => 
               val occuredQueue = nextEventsToQueues.get(event).get
@@ -179,18 +183,15 @@ trait LockTransform extends Transform {
         case _ => EmptyTree
       }
       q"""
+        if(${isUnsubscribed(names.outSubscriber)}) return
         ${names.stateLockVal}.lock()
-        if (${names.stop}) {
+        val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
+        breakable {
+          ..$patternChecks
+          // Reaching the following line means that no pattern has matched, and we need to buffer the message
+          $bufferStatement
+          ${names.stateVar} = $possibleStateVal
           ${names.stateLockVal}.unlock()
-        } else {
-          val $possibleStateVal = ${names.stateVar} | ${eventsToIds.get(occuredEvent).get}
-          breakable {
-            ..$patternChecks
-            // Reaching this line means that no pattern has matched, and we need to buffer the message
-            $bufferStatement
-            ${names.stateVar} = $possibleStateVal
-            ${names.stateLockVal}.unlock()
-          }
         }
       """
     }))
@@ -231,7 +232,6 @@ trait LockTransform extends Transform {
       import _root_.scala.util.control.Breaks._
       val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock()
       var ${names.stateVar} = 0L
-      var ${names.stop} = false
       ..$queueDeclarations
       ..$errorVarDeclarations
       ..$subscriberVarDeclarations

@@ -16,6 +16,8 @@ trait ReactiveSystem {
 
   def subscribe(joinObservable: TermName, subscriber: TermName): Tree
   def unsubscribe(subscriber: TermName): Tree
+  def isUnsubscribed(subscriber: TermName): Tree
+
   def requestMore(subscriber: TermName, value: Tree): Tree
 
   def createPublisher(onSubscribe: Tree, argument: TermName, tpe: Type): Tree
@@ -28,7 +30,6 @@ trait ReactiveSystem {
 trait RxJavaSystem extends ReactiveSystem {
   self: JoinMacro =>
   import c.universe._
-
 
   def createVariableStoringSubscriber: (TermName, Type) => Tree = 
     (name: TermName, tpe: Type) => q"var $name: _root_.scala.async.internal.imports.SubscriberAdapter[$tpe] = null"
@@ -79,6 +80,8 @@ trait RxJavaSystem extends ReactiveSystem {
 
   def subscribe(joinObservable: TermName, subscriber: TermName): Tree = q"$joinObservable.observable.subscribe($subscriber)"
   def unsubscribe(subscriber: TermName): Tree = q"$subscriber.unsubscribe()"
+  def isUnsubscribed(subscriber: TermName): Tree = q"$subscriber.isUnsubscribed"
+
   def requestMore(subscriber: TermName, value: Tree): Tree = q"$subscriber.asInstanceOf[_root_.scala.async.internal.imports.SubscriberAdapter[_]].requestMore($value)"
 
   def createPublisher(onSubscribe: Tree, argument: TermName, tpe: Type): Tree = 
