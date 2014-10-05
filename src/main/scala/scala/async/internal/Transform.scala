@@ -224,7 +224,7 @@ trait LockTransform extends Transform {
     })
     // Variable declarations for storing Error event messages (throwables)
     val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
-        q"var $varName: Throwable = null"
+        q"var $varName: _root_.java.lang.Throwable = null"
     })
     // TODO: How to unsubscribe...
     // OnSubscribe will be called for every new subscriber to our joined Observable
