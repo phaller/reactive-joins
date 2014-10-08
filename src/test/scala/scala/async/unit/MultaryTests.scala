@@ -65,6 +65,7 @@ class MultaryTests {
     assert(result.filter(x => !x).size == half)
   }
 
+  // 
   // TODO: Figure out why this does not work anymore after moving to Observable.create?
   // @Test
   // def joinRespectsPatternOrder() = {

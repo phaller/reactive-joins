@@ -11,6 +11,11 @@ import rx.lang.scala.Observable
 // to refactor many pattern-matches where the distinct types are recognized by
 // matching against hard-coded TermNames. For example: Done would
 // be matched against using "Select(_, TermName("Done"))".
+
+// TODO: Check for Superflous imports
+// TODO: Object with names for transform
+// TODO: put into an RxJavaJoin object...
+
 object Join {
 
   class JoinObservable[A](val observable: Observable[A]) {
@@ -39,6 +44,7 @@ object Join {
 
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
+  case class Last[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]
   case object Pass extends JoinReturn[Nothing]
   implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass

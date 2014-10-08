@@ -12,13 +12,70 @@ trait LockFreeTransform extends Transform {
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
     val patterns: Set[Pattern] = parse(pf)
     val events: Set[Event] = uniqueEvents(patterns)
-    val observables = events.groupBy(e => e.source).map(_._1)
+    val nextEventsToQueues = 
       freshNames(events.nexts, "queue")
     val errorEventsToVars = 
       freshNames(events.errors, "error")
     val doneEventsToVars = 
       freshNames(events.dones, "done")
-    val resultType = implicitly[WeakTypeTag[A]].tpe
+    // Queue declarations for buffering Next event messages
+    val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
+        val messageType = typeArgumentOf(event.source)
+        q"val $queueName = _root_.java.util.concurrent.ConcurrentLinkedQueue[$messageType]()"
+    })
+    // Variable declarations for storing Error event messages (throwables)
+    val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
+        q"@volatile var $varName: _root_.java.lang.Throwable = null"
+    })
+    // Variable declarations for storing the occurence of onDone
+    val doneVarDeclarations = doneEventsToVars.map({ case (_, varName) =>
+      q"@volatile var $varName: Boolean = false"
+    })
+    // val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
+    //   val messageToResolve = fresh("messageToResolve")
+    //   val retry = fresh("retry")
+    //   val resolve = q"""
+    //     def resolve[A]($messageToResolve: Option[_root_scala.async.Join.Message[A]]) = {
+    //       var $retry: Boolean = false
+    //       check_pattern_1($messageToResolve) match {
+    //         case Resolved => return
+    //         case Retry => { retry = true }
+    //       }
+    //       check_pattern_2($messageToResolve) match {
+    //         case Resolved => return
+    //         case Retry => { retry = true }
+    //       }
+    //       if ($retry) {
+    //         $backoff.once()
+    //         resolve()
+    //       }
+    //     }
+    //   """
+
+      // val storeEventStatement = occurendEvent match {
+      //   case next: Next =>
+      //     val myQueue = nextEventsToQueues.get(next).get
+      //     val myMessage = fresh("message")
+      //     q"""
+      //     val $myMessage = _root_scala.async.Join.Message(${nextEvent.get}, $myQueue)
+      //     addToAndClaimQueue($myQueue, $myMessage)
+      //     resolve(Some($myMessage))
+      //     $myQueue.unclaim()
+      //     """
+      //   case error: Error =>
+      //     val myErrorVar = errorEventsToVars.get(error).get
+      //     q"""
+      //       $myErrorVar = ${nextMessage.get}
+      //       resolve(None) 
+      //     """
+      //   case done: Done =>
+      //     val myDoneVar = doneEventsToVars.get(done).get
+      //     q"""
+      //       $myDoneVar = true
+      //       resolve(None) 
+      //     """
+      // }
+    // })
     EmptyTree
   }
 }
@@ -26,7 +83,7 @@ trait LockFreeTransform extends Transform {
 trait LockTransform extends Transform { 
   self: JoinMacro with Parse with ReactiveSystem with BackPressure with Util =>
   import c.universe._
-  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
 
   // names represents a "global" namespace where TermNames can be stored to be used across the functions involved in the transform
   object names {
@@ -62,6 +119,12 @@ trait LockTransform extends Transform {
         case $exceptionName: Throwable => 
         ${error(names.outSubscriber, q"$exceptionName")}
       }"""
+    case (ReturnLast(returnExpr), block) => q"""
+      ..$block
+      ${next(names.outSubscriber, returnExpr)}
+      ${done(names.outSubscriber)}
+      ${afterDone.getOrElse(EmptyTree)}
+    """
     case (ReturnDone, block) => q"""
       ..$block
       ${done(names.outSubscriber)}

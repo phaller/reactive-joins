@@ -4,7 +4,7 @@ trait Parse {
   self: JoinMacro =>
   import c.universe._
   import scala.language.implicitConversions
-  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
 
   // Abstract Syntax Trees for the partial-function join-syntax
   sealed trait PatternTree
@@ -116,6 +116,7 @@ trait Parse {
   // of what a user wanted to send (e.g. the x in Next(x)) is returned as JoinReturn[c.Tree], otherwise "JoinReturn[Nothing] are returned
   private def parseReturnStatement(statement: c.Tree): JoinReturn[c.Tree] = statement match {
     case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), stats) => ReturnNext(stats.head)
+    case Apply(TypeApply(Select(Select(_, TermName("Last")), TermName("apply")), _), stats) => ReturnLast(stats.head)
     case Select(_, TermName("Done")) => ReturnDone
     case Select(_, TermName("Pass")) => ReturnPass
     case other =>  
