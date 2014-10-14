@@ -30,8 +30,8 @@ trait Parse {
     }
     override def hashCode: Int = 41 * (41 + events.hashCode) + guardTree.hashCode
     // A pattern is mixed if it contains onNext machtes onError, and/or onDone events
-    def isMixed(): Boolean = events.find({ case e: Next => true }).nonEmpty &&
-                             events.find({ case e: Done => true }).orElse(events.find({ case e: Error => true })).nonEmpty
+    def isMixed(): Boolean = events.find(e => e.isInstanceOf[Next]).nonEmpty &&
+                             events.find(e => e.isInstanceOf[Done]).orElse(events.find(e => e.isInstanceOf[Error])).nonEmpty
   }
 
   // Helps to keep to code cleaner as filtering for differnt Event types

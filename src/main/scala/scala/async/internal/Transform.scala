@@ -6,7 +6,7 @@ trait Transform {
 }
 
 trait LockFreeTransform extends Transform {
-  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper => 
+  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Backpressure => 
   import c.universe._
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
@@ -85,7 +85,10 @@ trait LockFreeTransform extends Transform {
   //     val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
   //     val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
   //       val queue = nextEventsToQueues.get(event).get
-  //       val requestMoreStats = generateRequestMoreStatement(observablesToSubscribers.get(event.source).get)
+  // //       val requestMoreStats = if (unboundBuffer) EmptyTree else {
+  //             val subscriber = observablesToSubscribers.get(event.source).get
+  //             requestMore(subscriber, bufferSizeTree)
+  //           }
   //       (q"val $name = $queue.poll().content",
   //        q"""
   //         if ($queue.isEmpty) {
@@ -189,7 +192,7 @@ trait LockFreeTransform extends Transform {
 }
 
 trait LockTransform extends Transform { 
-  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Util =>
+  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Backpressure with Util =>
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
 
@@ -274,7 +277,10 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasiquote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val requestMoreStats = generateRequestMoreStatement(observablesToSubscribers.get(event.source).get)
+            val requestMoreStats = if (unboundBuffer) EmptyTree else {
+              val subscriber = observablesToSubscribers.get(event.source).get
+              requestMore(subscriber, bufferSizeTree)
+            }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
@@ -295,7 +301,7 @@ trait LockTransform extends Transform {
           }
           val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
           // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
-          val patternBody = generateReturnExpression(rawPatternBody, afterDone = Some(unsubscribeAllBlock))
+          val patternBody = generateReturnExpression(parsePatternBody(rawPatternBody), names.outSubscriber, afterDone = Some(unsubscribeAllBlock))
           val requestMoreFromOccured = occuredEvent match {
             case event @ Next(source) if !unboundBuffer => 
               val occuredQueue = nextEventsToQueues.get(event).get
@@ -337,27 +343,11 @@ trait LockTransform extends Transform {
       """
     }))
     // TODO: Explain why we need to createVariableStoringSubscriber mechanism.
-    val subscriberVarDeclarations = observablesToSubscribers.map({ case (observable, subscriber) =>
-      val obsTpe = typeArgumentOf(observable)
-      createVariableStoringSubscriber(subscriber, obsTpe)
-    })
-    // Group the event call backs we created by their source observable
-    val observablesToEventCallbacks = 
-      eventCallbacks.groupBy({ case (event, _) => event.source })
+    val subscriberVarDeclarations = generateSubscribervarDeclarations(observablesToSubscribers)
     // Create a Subscriber for every observable
-    val subscriberDeclarations = observablesToEventCallbacks.map({ case (obsSym, events) => 
-      val next = events.find(event => event._1.isInstanceOf[Next]).map(_._2)
-      val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
-      val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
-      val nextMessageType = typeArgumentOf(obsSym)
-      val subscriberDecl = createSubscriber((next, nextMessageType), error, done, Some(bufferSizeTree))
-      val subscriberVar = observablesToSubscribers.get(obsSym).get
-      q"$subscriberVar = $subscriberDecl"
-    })
+    val subscriberDeclarations = generateSubscriberDeclarations(observablesToSubscribers, eventCallbacks, Some(bufferSizeTree))
     // We generate code which subscribes the created subscribers to their observable
-    val subscriptions = observablesToSubscribers.map({ case (observable, subscriber) =>
-      subscribe(observable.asTerm.name, subscriber)
-    })
+    val subscriptions = generateObservableSubscriptions(observablesToSubscribers)
     // Queue declarations for buffering Next event messages
     val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)

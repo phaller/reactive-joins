@@ -130,7 +130,7 @@ trait ReactiveSystemHelper {
     createVariableStoringSubscriber(subscriber, obsTpe)
   })
 
-  def generateSubscriberDeclarations(observablesToSubscribers: Map[Symbol, TermName], eventCallbacks: Map[Event, List[Option[TermName]] => Tree], buffersizeTree: Option[Tree] = None) = {
+  def generateSubscriberDeclarations(observablesToSubscribers: Map[Symbol, TermName], eventCallbacks: List[(Event, EventCallback)], bufferSizeTree: Option[Tree] = None) = {
     // Group the event call backs we created by their source observable
     val observablesToEventCallbacks = eventCallbacks.groupBy({ case (event, _) => event.source })
     // Create a Subscriber for every observable
@@ -139,7 +139,7 @@ trait ReactiveSystemHelper {
       val error = events.find(event => event._1.isInstanceOf[Error]).map(_._2)
       val done = events.find(event => event._1.isInstanceOf[Done]).map(_._2)
       val nextMessageType = typeArgumentOf(obsSym)
-      val subscriberDecl = createSubscriber((next, nextMessageType), error, done, bufferSizeTree))
+      val subscriberDecl = createSubscriber((next, nextMessageType), error, done, bufferSizeTree)
       val subscriberVar = observablesToSubscribers.get(obsSym).get
       q"$subscriberVar = $subscriberDecl"
     })
