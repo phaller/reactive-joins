@@ -6,82 +6,190 @@ trait Transform {
 }
 
 trait LockFreeTransform extends Transform {
-  self: JoinMacro with Parse with ReactiveSystem => 
+  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper => 
   import c.universe._
 
   override def joinTransform[A: c.WeakTypeTag](pf: c.Tree): c.Tree = {
-    val patterns: Set[Pattern] = parse(pf)
-    val events: Set[Event] = uniqueEvents(patterns)
-    val nextEventsToQueues = 
-      freshNames(events.nexts, "queue")
-    val errorEventsToVars = 
-      freshNames(events.errors, "error")
-    val doneEventsToVars = 
-      freshNames(events.dones, "done")
-    // Queue declarations for buffering Next event messages
-    val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
-        val messageType = typeArgumentOf(event.source)
-        q"val $queueName = _root_.java.util.concurrent.ConcurrentLinkedQueue[$messageType]()"
-    })
-    // Variable declarations for storing Error event messages (throwables)
-    val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
-        q"@volatile var $varName: _root_.java.lang.Throwable = null"
-    })
-    // Variable declarations for storing the occurence of onDone
-    val doneVarDeclarations = doneEventsToVars.map({ case (_, varName) =>
-      q"@volatile var $varName: Boolean = false"
-    })
-    // val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
-    //   val messageToResolve = fresh("messageToResolve")
-    //   val retry = fresh("retry")
-    //   val resolve = q"""
-    //     def resolve[A]($messageToResolve: Option[_root_scala.async.Join.Message[A]]) = {
-    //       var $retry: Boolean = false
-    //       check_pattern_1($messageToResolve) match {
-    //         case Resolved => return
-    //         case Retry => { retry = true }
-    //       }
-    //       check_pattern_2($messageToResolve) match {
-    //         case Resolved => return
-    //         case Retry => { retry = true }
-    //       }
-    //       if ($retry) {
-    //         $backoff.once()
-    //         resolve()
-    //       }
-    //     }
-    //   """
-
-      // val storeEventStatement = occurendEvent match {
-      //   case next: Next =>
-      //     val myQueue = nextEventsToQueues.get(next).get
-      //     val myMessage = fresh("message")
-      //     q"""
-      //     val $myMessage = _root_scala.async.Join.Message(${nextEvent.get}, $myQueue)
-      //     addToAndClaimQueue($myQueue, $myMessage)
-      //     resolve(Some($myMessage))
-      //     $myQueue.unclaim()
-      //     """
-      //   case error: Error =>
-      //     val myErrorVar = errorEventsToVars.get(error).get
-      //     q"""
-      //       $myErrorVar = ${nextMessage.get}
-      //       resolve(None) 
-      //     """
-      //   case done: Done =>
-      //     val myDoneVar = doneEventsToVars.get(done).get
-      //     q"""
-      //       $myDoneVar = true
-      //       resolve(None) 
-      //     """
-      // }
-    // })
+  //   val patterns: Set[Pattern] = parse(pf)
+  //   val events: Set[Event] = uniqueEvents(patterns)
+  //   val nextEventsToQueues = 
+  //     freshNames(events.nexts, "queue")
+  //   val errorEventsToVars = 
+  //     freshNames(events.errors, "error")
+  //   val doneEventsToVars = 
+  //     freshNames(events.dones, "done")
+  //   val observables = events.groupBy(e => e.source).map(_._1)
+  //   val observablesToSubscribers =
+  //     freshNames(observables, "subscribers")
+  //   // This block will be called once the joined observable has completed
+  //   val unsubscribeAllBlock = q"..${observablesToSubscribers.map({ case (_, subscriber) => unsubscribe(subscriber) })}"
+  //   // Queue declarations for buffering Next event messages
+  //   val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
+  //       val messageType = typeArgumentOf(event.source)
+  //       q"val $queueName = _root_.java.util.concurrent.ConcurrentLinkedQueue[$messageType]()"
+  //   })
+  //   // Variable declarations for storing Error event messages (throwables)
+  //   val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
+  //       q"@volatile var $varName: _root_scala.async.internal.imports.nondeterministic.Message[Throwable] = null"
+  //   })
+  //   // Variable declarations for storing the occurence of onDone
+  //   val doneVarDeclarations = doneEventsToVars.map({ case (_, varName) =>
+  //     q"@volatile var $varName: _root_scala.async.internal.imports.nondeterministic.Message[Unit] = null"
+  //   })
+  //   // Every pattern has its own handler function which can be called by any event-handler involved in a pattern
+  //   val patternMatchHandler = patterns.toList.freshNames("check_pattern").map({ case (pattern, name) => {
+  //     val resolveMessage = fresh("resolveMessage")
+  //     val messagesToClaim = fresh("messagesToClaim")
+  //     val errors = pattern.events.errors
+  //     val dones = pattern.events.dones
+  //     val nexts = pattern.events.nexts
+  //     // Messages of type done, and error are handled in the same way
+  //     val errorOrdoneHandler = (eventVar: TermName) => q"""
+  //       if ($eventVar == null) {
+  //           return if ($resolveMessage.source == $event) {
+  //             _root_scala.async.internal.imports.nondeterministic.Resolved
+  //           } else {
+  //             _root_scala.async.internal.imports.nondeterministic.NoMatch
+  //           }
+  //         } else if ($eventVar.Status() == _root_scala.async.internal.imports.nondeterministic.Status.Claimed) {
+  //           return _root_scala.async.internal.imports.nondeterministic.Retry
+  //         } else { 
+  //           $messagesToClaim = $eventVar :: $messagesToClaim
+  //         }
+  //       """
+  //     val errorHandler = errors.map(event => errorOrdoneHandler(errorEventsToVars.get(event).get))
+  //     val doneHandler =  dones.map(event => errorOrdoneHandler(doneEventsToVars.get(event).get))
+  //     // Message of type onNExt are handled very similarly to onDone, onError but include
+  //     val nextHandler = nexts.map(event => {
+  //       val head = fresh("head")
+  //       val myQueue = nextEventsToQueues.get(event).get
+  //       q"""
+  //         val $head = $myQueue.peek()
+  //         if ($head == null) {
+  //           return if ($resolveMessage.source == $event)
+  //             _root_scala.async.internal.imports.nondeterministic.Resolved
+  //           else 
+  //             _root_scala.async.internal.imports.nondeterministic.NoMatch
+  //         } else if ($head.Status() == _root_scala.async.internal.imports.nondeterministic.Status.Claimed) {
+  //           return _root_scala.async.internal.imports.nondeterministic.Retry
+  //         } else {
+  //           if ($resolveMessage.source == $event && $head neq $resolveMessage) return _root_scala.async.internal.imports.nondeterministic.Resolved
+  //           $messagesToClaim = $head :: $messagesToClaim
+  //         }
+  //       """
+  //     })
+  //     // After we collected enough messages to claim, we try to do so. If we fail this means we lost a race against another resolving thread
+  //     val claimedMessages = fresh("claimedMessages")
+  //     val message = fresh("message")
+  //     // But before we do that, we need to prepated for the case when we can match
+  //     val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
+  //     val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
+  //       val queue = nextEventsToQueues.get(event).get
+  //       val requestMoreStats = generateRequestMoreStatement(observablesToSubscribers.get(event.source).get)
+  //       (q"val $name = $queue.poll().content",
+  //        q"""
+  //         if ($queue.isEmpty) {
+  //           ..$requestMoreStats
+  //         }""")
+  //     })
+  //     // Consume the error vars by storing them in a different variable, and setting the errorVar to null
+  //     val retrievedErrorVals = freshNames(pattern.events.errors, "unwrapedError").toList
+  //     val retrieveErrorStatements = retrievedErrorVals.map({ case (event, name) => 
+  //       val errorVar = errorEventsToVars.get(event).get
+  //       (q"val $name = $errorVar.content",
+  //        q"$errorVar = null")
+  //     })
+  //     // Replace the occurences of Next, and Error event binding variables in the pattern-body
+  //     val combinedEvents = dequeuedMessageVals ++ retrievedErrorVals
+  //     var symbolsToReplace = combinedEvents.map({ case (event, _) => pattern.bindings.get(event).get }) 
+  //     var ids = combinedEvents.map({ case (_, name) => Ident(name) })
+  //     val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, pattern.bodyTree)
+  //     // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
+  //     val patternBody = generateReturnExpression(rawPatternBody, afterDone = Some(unsubscribeAllBlock))
+  //     val claimMessages = q"""
+  //       val $claimedMessages = $messagesToClaim.map($message => if (!$message.tryClaim()) $message))
+  //       if ($claimedMessages.size != $messagesToClaim.size) {
+  //         $claimedMessages.foreach(_.unclaim())
+  //         return _root_scala.async.internal.imports.nondeterministic.Retry
+  //       } else {
+  //         ..${dequeueStatements.map({ case (stats, _) => stats })}
+  //         ..${dequeueStatements.map({ case (_, stats) => stats })}
+  //         ..${retrieveErrorStatements.map({ case (stats, _) => stats })}
+  //         ..${retrieveErrorStatements.map({ case (_, stats) => stats })}
+  //         ..$patternBody
+  //         return _root_scala.async.internal.imports.nondeterministic.Matched
+  //     }
+  //     """
+  //     // The full checking of a pattern involves finding error, done, and next messages to claim,
+  //     // trying to claim them, and if successful: execute pattern matching!
+  //     q"""
+  //       def $name[A]($resolveMessage: _root_scala.async.internal.imports.nondeterministic.Message[A]): _root_scala.async.internal.imports.nondeterministic.MatchResult = {
+  //         var $messagesToClaim = _root_.scala.collection.Seq[_root_scala.async.internal.imports.nondeterministic.Message[Any]].empty
+  //         ..$errorHandler
+  //         ..$doneHandler
+  //         ..$nextHandler
+  //         $claimMessages
+  //       }
+  //     """
+  //   }})
+  //   // We create for each event call back a resolve function calling the corresponding pattern-match handler
+  //   val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
+  //     val messageToResolve = fresh("messageToResolve")
+  //     val retry = fresh("retry")
+  //     val myPatterns = patterns.filter(pattern => pattern.events.contains(occuredEvent))
+  //     val callPatternChecks = myPatterns.map(p => { 
+  //       val patternCheck = patternMatchHandler.get(p).get 
+  //       q"$patternCheck($messageToResolve)"
+  //     })
+  //     val patternChecks = callPatternChecks.map(call => q"""
+  //       $call match {
+  //         case _root_scala.async.internal.imports.nondeterministic.Resolved => return
+  //         case _root_scala.async.internal.imports.nondeterministic.Retry => { $retry = true }
+  //       }
+  //       """)
+  //     val resolve = q"""
+  //       def resolve[A]($messageToResolve: _root_scala.async.internal.imports.nondeterministic.Message[A]) = {
+  //         var $retry: Boolean = false
+  //         $patternChecks
+  //         if ($retry) {
+  //           $backoff.once()
+  //           resolve()
+  //         }
+  //       }
+  //     """
+  //     val storeEventStatement = occurendEvent match {
+  //       case next: Next =>
+  //         val myQueue = nextEventsToQueues.get(next).get
+  //         val myMessage = fresh("message")
+  //         q"""
+  //           val $myMessage = _root_scala.async.internal.imports.nondeterministic.Message(${nextEvent.get}, $next)
+  //           addToAndClaimQueue($myQueue, $myMessage)
+  //           resolve($myMessage)
+  //           $myQueue.unclaim()
+  //         """
+  //       case error: Error =>
+  //         q"resolve(_root_scala.async.internal.imports.nondeterministic.Message(${nextEvent.get}, $error))"
+  //       case done: Done =>
+  //         q"resolve(_root_scala.async.internal.imports.nondeterministic.Message(()), $done))"
+  //     }
+  //     q"""
+  //     $resolve
+  //     ..$storeEventStatement
+  //     """
+  //   })
+  //   // Putting it all together
+  //   q"""
+  //    ..$queueDeclarations
+  //    ..$errorVarDeclarations
+  //    ..$doneVarDeclarations
+  //    ..$patternMatchHandler
+  //   """
     EmptyTree
   }
 }
 
 trait LockTransform extends Transform { 
-  self: JoinMacro with Parse with ReactiveSystem with BackPressure with Util =>
+  self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Util =>
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
 
@@ -106,33 +214,6 @@ trait LockTransform extends Transform {
         break
     }
    """
-  }
-
-  def generateReturnExpression(patternBody: Tree, afterDone: Option[Tree] = None): Tree = parsePatternBody(patternBody) match {
-    case (ReturnNext(returnExpr), block) =>
-      val exceptionName = fresh("ex")
-      q"""
-      ..$block
-      try {
-        ${next(names.outSubscriber, returnExpr)}
-      } catch {
-        case $exceptionName: Throwable => 
-        ${error(names.outSubscriber, q"$exceptionName")}
-      }"""
-    case (ReturnLast(returnExpr), block) => q"""
-      ..$block
-      ${next(names.outSubscriber, returnExpr)}
-      ${done(names.outSubscriber)}
-      ${afterDone.getOrElse(EmptyTree)}
-    """
-    case (ReturnDone, block) => q"""
-      ..$block
-      ${done(names.outSubscriber)}
-      ${afterDone.getOrElse(EmptyTree)}
-      """
-    case (ReturnPass, block) => q"""
-      ..$block
-      """
   }
 
   override def joinTransform[A: c.WeakTypeTag](pf: Tree): Tree = {
@@ -193,10 +274,7 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasiquote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val requestMoreStats = if (unboundBuffer) EmptyTree else {
-              val subscriber = observablesToSubscribers.get(event.source).get
-              requestMore(subscriber, bufferSizeTree)
-            }
+            val requestMoreStats = generateRequestMoreStatement(observablesToSubscribers.get(event.source).get)
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
@@ -264,7 +342,7 @@ trait LockTransform extends Transform {
       createVariableStoringSubscriber(subscriber, obsTpe)
     })
     // Group the event call backs we created by their source observable
-     val observablesToEventCallbacks = 
+    val observablesToEventCallbacks = 
       eventCallbacks.groupBy({ case (event, _) => event.source })
     // Create a Subscriber for every observable
     val subscriberDeclarations = observablesToEventCallbacks.map({ case (obsSym, events) => 
@@ -289,7 +367,6 @@ trait LockTransform extends Transform {
     val errorVarDeclarations = errorEventsToVars.map({ case (_, varName) => 
         q"var $varName: _root_.java.lang.Throwable = null"
     })
-    // TODO: How to unsubscribe...
     // OnSubscribe will be called for every new subscriber to our joined Observable
     val onSubscribe = q"""
       import _root_.scala.util.control.Breaks._

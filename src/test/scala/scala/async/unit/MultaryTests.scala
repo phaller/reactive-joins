@@ -65,6 +65,25 @@ class MultaryTests {
     assert(result.filter(x => !x).size == half)
   }
 
+  // // TODO: Figure out how to test the mixed-pattern semantics
+  // @Test
+  // def doneSemantics {
+  //   val input1 = List.fill(randomNonZeroEvenInteger(maxListSize))(1)
+  //   val input2 = List.fill(randomNonZeroEvenInteger(maxListSize))(2)
+   
+  //   val o1 = Observable.just(input1: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+  //   val o2 = Observable.just(input2: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    
+  //   val obs = join {
+  //     case o1(x) => Next(x)
+  //     case o2(x) && o1.done => Next(x)
+  //     case o2.done => Done
+  //   }
+
+  //   val result = obs.toBlocking.toList 
+  //   assert(result == (input1 ++ input2))
+  // }
+
   // 
   // TODO: Figure out why this does not work anymore after moving to Observable.create?
   // @Test

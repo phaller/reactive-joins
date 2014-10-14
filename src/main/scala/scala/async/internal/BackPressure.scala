@@ -1,6 +1,6 @@
 package scala.async.internal
 
-trait BackPressure {
+trait Backpressure {
   self: JoinMacro =>
   import c.universe._
   import scala.async.Join.BufferSize

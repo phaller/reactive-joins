@@ -29,6 +29,9 @@ trait Parse {
       case _ => false
     }
     override def hashCode: Int = 41 * (41 + events.hashCode) + guardTree.hashCode
+    // A pattern is mixed if it contains onNext machtes onError, and/or onDone events
+    def isMixed(): Boolean = events.find({ case e: Next => true }).nonEmpty &&
+                             events.find({ case e: Done => true }).orElse(events.find({ case e: Error => true })).nonEmpty
   }
 
   // Helps to keep to code cleaner as filtering for differnt Event types
@@ -104,7 +107,7 @@ trait Parse {
  // Parse a pattern-body for the action the user wants to perform, also returns the statements to be executed
  // before the JoinReturn action. (JoinReturn actions are only Next, Done, or Pass, but there might be other
  // code to be exectued before this JoinReturn action.)
- def parsePatternBody(patternBody: c.Tree): (JoinReturn[c.Tree], List[c.Tree]) = patternBody match {
+ def parsePatternBody(patternBody: Tree): (JoinReturn[Tree], List[Tree]) = patternBody match {
     case Block(stats, lastExpr) => (parseReturnStatement(lastExpr), stats)
     case Apply(Select(_, TermName("unitToPass")), stats) => (ReturnPass, stats)
     // ^ matches the implicit conversion from Unit to Pass
@@ -114,7 +117,7 @@ trait Parse {
 
   // Returns a representation of what Subject action the user wanted us to execute in a pattern body. If it's a Next, then the expression
   // of what a user wanted to send (e.g. the x in Next(x)) is returned as JoinReturn[c.Tree], otherwise "JoinReturn[Nothing] are returned
-  private def parseReturnStatement(statement: c.Tree): JoinReturn[c.Tree] = statement match {
+  private def parseReturnStatement(statement: Tree): JoinReturn[Tree] = statement match {
     case Apply(TypeApply(Select(Select(_, TermName("Next")), TermName("apply")), _), stats) => ReturnNext(stats.head)
     case Apply(TypeApply(Select(Select(_, TermName("Last")), TermName("apply")), _), stats) => ReturnLast(stats.head)
     case Select(_, TermName("Done")) => ReturnDone
