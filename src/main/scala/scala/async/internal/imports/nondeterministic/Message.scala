@@ -5,7 +5,7 @@ object Status extends Enumeration {
   val Claimed = Value("Claimed")
 }
 
-case class Message[A, B](content: A, source: B) extends AbstractMessage {
+case class Message[A](content: A, source: Long) extends AbstractMessage {
   updateState(null, Status.Pending)
   def tryClaim(): Boolean = updateState(Status.Pending, Status.Claimed)
   // Only call unclaim on messages with the thread which has claimed them
@@ -13,8 +13,9 @@ case class Message[A, B](content: A, source: B) extends AbstractMessage {
   def status: Status.type = getState().asInstanceOf[Status.type]
 }
 
-// We use a message to implement the claiming of a single queue
-class QueueLock extends Message[Unit, Unit]((),())
+// We use a message to implement the claiming of a single queue, it therefore does not
+// use the source-field.
+class QueueLock extends Message[Unit]((), -1)
 object QueueLock {
-  def apply() = new QueueLock
+  def apply() = new QueueLock()
 }
