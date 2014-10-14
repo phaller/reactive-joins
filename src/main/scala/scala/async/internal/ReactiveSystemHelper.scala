@@ -3,7 +3,7 @@ package scala.async.internal
 trait ReactiveSystemHelper {
   self: JoinMacro with ReactiveSystem with Util => 
   import c.universe._
-  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   def generateReturnExpression(parsedPatternBody: (JoinReturn[Tree], List[Tree]), outSubscriber: TermName, afterDone: Option[Tree] = None): Tree = parsedPatternBody match {
     case (ReturnNext(returnExpr), block) =>
@@ -16,12 +16,6 @@ trait ReactiveSystemHelper {
         case $exceptionName: Throwable => 
         ${error(outSubscriber, q"$exceptionName")}
       }"""
-    case (ReturnLast(returnExpr), block) => q"""
-      ..$block
-      ${next(outSubscriber, returnExpr)}
-      ${done(outSubscriber)}
-      ${afterDone.getOrElse(EmptyTree)}
-    """
     case (ReturnDone, block) => q"""
       ..$block
       ${done(outSubscriber)}

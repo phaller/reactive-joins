@@ -239,7 +239,7 @@ trait LockFreeTransform extends Transform {
 trait LockTransform extends Transform { 
   self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Backpressure with Util =>
   import c.universe._
-  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass, Last => ReturnLast}
+  import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 
   // names represents a "global" namespace where TermNames can be stored to be used across the functions involved in the transform
   object names {

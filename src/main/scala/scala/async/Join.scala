@@ -44,7 +44,6 @@ object Join {
 
   sealed trait JoinReturn[+A]
   case class Next[A](a: A) extends JoinReturn[A]
-  case class Last[A](a: A) extends JoinReturn[A]
   case object Done extends JoinReturn[Nothing]
   case object Pass extends JoinReturn[Nothing]
   implicit def unitToPass(a: Unit): JoinReturn[Nothing] = Pass

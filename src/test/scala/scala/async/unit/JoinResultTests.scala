@@ -41,21 +41,6 @@ class JoinResultTests {
   }
 
   @Test
-  def joinResultLast() = {
-   val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.just(input: _*).p
-    val lastElement = "END"
-
-    val obs = join {
-      case o1.done => Last(lastElement)
-    }
-    
-    val result = obs.toBlocking.toList
-    assert(result.last == lastElement)
-    assert(result.size == 1)
-  }
-  
-  @Test
   def coVariantJoinReturn() = {
     sealed trait Animal
     case class Dog(name: String) extends Animal
