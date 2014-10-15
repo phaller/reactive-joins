@@ -5,7 +5,7 @@ package scala.async.internal.imports.nondeterministic
 
 import scala.util._
 
-private object Backoff {
+object Backoff {
   val maxCount: Int = 14
   var procs = Runtime.getRuntime.availableProcessors
   def apply() = new Backoff

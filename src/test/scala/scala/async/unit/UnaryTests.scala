@@ -26,61 +26,61 @@ class UnaryTests {
     assert(result == expected)
   }
 
-  @Test
-  def unaryJoinError() = {
-    import scala.collection.JavaConversions._
+  // @Test
+  // def unaryJoinError() = {
+  //   import scala.collection.JavaConversions._
    
-    val size = randomNonZeroEvenInteger(2)
-    val o1 = Observable.just(1 to size: _*).map(x => 
-        if (x % size == 0) throw new Exception("") else x
-    ).observeOn(newThreadScheduler).p
+  //   val size = randomNonZeroEvenInteger(2)
+  //   val o1 = Observable.just(1 to size: _*).map(x => 
+  //       if (x % size == 0) throw new Exception("") else x
+  //   ).observeOn(newThreadScheduler).p
 
-    val obs = join {
-      case o1.error(e) => Next(e)
-    }
+  //   val obs = join {
+  //     case o1.error(e) => Next(e)
+  //   }
 
-    assert(obs.toBlocking.first.isInstanceOf[Throwable])
-  }
+  //   assert(obs.toBlocking.first.isInstanceOf[Throwable])
+  // }
 
-  @Test
-  def unaryJoinDone() = {
-    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
+  // @Test
+  // def unaryJoinDone() = {
+  //   val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+  //   val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
     
-    val obs = join {
-      case o1.done => Next(true)
-    }
+  //   val obs = join {
+  //     case o1.done => Next(true)
+  //   }
     
-    assert(obs.toBlocking.first)
-  }
+  //   assert(obs.toBlocking.first)
+  // }
 
-  @Test
-  def unaryJoinDoneOutput() = {
-    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
+  // @Test
+  // def unaryJoinDoneOutput() = {
+  //   val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+  //   val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
     
-    val obs = join {
-      case o1(x) => Done
-    }
-    obs.toBlocking
-    assert(true)
-  }
+  //   val obs = join {
+  //     case o1(x) => Done
+  //   }
+  //   obs.toBlocking
+  //   assert(true)
+  // }
 
 
-   @Test
-  def unaryJoinGuard() = {
-    val o1 = Observable.just(1, 2).p
+  //  @Test
+  // def unaryJoinGuard() = {
+  //   val o1 = Observable.just(1, 2).p
 
-    var received = false
-    val obs = join {
-      case o1(x) if !received => 
-        received = true
-        Next(true)
-      case o1(x) if received => Done
-    }
+  //   var received = false
+  //   val obs = join {
+  //     case o1(x) if !received => 
+  //       received = true
+  //       Next(true)
+  //     case o1(x) if received => Done
+  //   }
     
-    assert(obs.toBlocking.first)
-  }
+  //   assert(obs.toBlocking.first)
+  // }
 
 //  // TODO: Find a way to test this. Try Mockito again?
 //  // @Test

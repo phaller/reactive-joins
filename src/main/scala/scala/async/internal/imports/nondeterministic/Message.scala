@@ -1,16 +1,15 @@
 package scala.async.internal.imports.nondeterministic
 
-object Status extends Enumeration {
-  val Pending = Value("Pending")
-  val Claimed = Value("Claimed")
-}
+sealed trait Status
+case object Pending extends Status
+case object Claimed extends Status
 
-case class Message[A](content: A, source: Long) extends AbstractMessage {
-  updateState(null, Status.Pending)
-  def tryClaim(): Boolean = updateState(Status.Pending, Status.Claimed)
+case class Message[+A](content: A, source: Long) extends AbstractMessage {
+  updateState(null, Pending)
+  def tryClaim(): Boolean = updateState(Pending, Claimed)
   // Only call unclaim on messages with the thread which has claimed them
-  def unclaim() = { _ref = Status.Pending }
-  def status: Status.type = getState().asInstanceOf[Status.type]
+  def unclaim(): Unit = { _ref = Pending }
+  def status(): Status = getState().asInstanceOf[Status]
 }
 
 // We use a message to implement the claiming of a single queue, it therefore does not

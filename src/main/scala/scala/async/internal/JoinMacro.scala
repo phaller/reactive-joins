@@ -3,7 +3,7 @@ package scala.async.internal
 import language.experimental.macros
 import scala.reflect.macros.blackbox.Context
 
-trait JoinMacro extends LockTransform with Parse with RxJavaSystem with ReactiveSystemHelper with Backpressure with Util {
+trait JoinMacro extends LockFreeTransform with Parse with RxJavaSystem with ReactiveSystemHelper with Backpressure with Util {
   self: Transform =>
   val c: Context
 }
