@@ -169,17 +169,19 @@ trait LockFreeTransform extends Transform {
         val patternCheck = patternMatchHandler.get(p).get._1 
         q"$patternCheck($messageToResolve)"
       })
+      val mySubscriber = observablesToSubscribers.get(occuredEvent.source).get
       val patternChecks = callPatternChecks.map(call => q"""
         $call match {
-          case _root_.scala.async.internal.imports.nondeterministic.Resolved => return
-          case _root_.scala.async.internal.imports.nondeterministic.Retry => { $retry = true }
+          case _root_.scala.async.internal.imports.nondeterministic.Resolved if !${isUnsubscribed(mySubscriber)} => return
+          case _root_.scala.async.internal.imports.nondeterministic.Retry if !${isUnsubscribed(mySubscriber)} => { $retry = true }
+          case _ if ${isUnsubscribed(mySubscriber)} => return
           case _ =>
         }
         """)
-      val mySubscriber = observablesToSubscribers.get(occuredEvent.source).get
       val resolve = q"""
         @_root_.scala.annotation.tailrec
         def resolve[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A]): Unit = {
+          if (${isUnsubscribed(mySubscriber)}) return
           debug("Resolving: " + $messageToResolve)
           var $retry: Boolean = false
           val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
