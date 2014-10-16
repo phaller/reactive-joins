@@ -96,13 +96,13 @@ trait LockFreeTransform extends Transform {
         val queue = nextEventsToQueues.get(event).get
         val requestMoreStats = if (unboundBuffer) EmptyTree else {
           val subscriber = observablesToSubscribers.get(event.source).get
-          requestMore(subscriber, bufferSizeTree)
+          q"""
+          if ($queue.isEmpty) {
+            ..${requestMore(subscriber, bufferSizeTree)}
+          }"""
         }
         (q"val $name = $queue.poll().content",
-         q"""
-          if ($queue.isEmpty) {
-            ..$requestMoreStats
-          }""")
+        requestMoreStats)
       })
       // Consume the error vars by storing them in a different variable, and setting the errorVar to null
       val retrievedErrorVals = freshNames(pattern.events.errors, "unwrapedError").toList
@@ -112,7 +112,10 @@ trait LockFreeTransform extends Transform {
          q"$errorVar = null")
       })
       // Consume the done messages
-      val retrieveDoneStatements = doneEventsToVars.map({ case (_, name) => q"$name = null" })
+      val retrieveDoneStatements = dones.map(event => {
+        val name = doneEventsToVars.get(event).get
+        q"$name = null" 
+      })
       // Replace the occurences of Next, and Error event binding variables in the pattern-body
       val combinedEvents = dequeuedMessageVals ++ retrievedErrorVals
       var symbolsToReplace = combinedEvents.map({ case (event, _) => pattern.bindings.get(event).get }) 
@@ -132,12 +135,14 @@ trait LockFreeTransform extends Transform {
           ..${retrieveErrorStatements.map({ case (_, stats) => stats })}
           ..$retrieveDoneStatements
           ..$patternBody
+          println("Matched pattern!")
           return _root_.scala.async.internal.imports.nondeterministic.Resolved
       }
       """
       // The full checking of a pattern involves finding error, done, and next messages to claim,
       // trying to claim them, and if successful: execute pattern matching!
       name -> q"""def $name[A]($resolveMessage: _root_.scala.async.internal.imports.nondeterministic.Message[A]): _root_.scala.async.internal.imports.nondeterministic.MatchResult = {
+          println("Checking pattern " + $resolveMessage)
           var $messagesToClaim = _root_.scala.collection.immutable.List.empty[_root_.scala.async.internal.imports.nondeterministic.Message[Any]]
           ..$errorHandler
           ..$doneHandler
@@ -166,6 +171,8 @@ trait LockFreeTransform extends Transform {
       val resolve = q"""
         @_root_.scala.annotation.tailrec
         def resolve[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A]): Unit = {
+          // TODO: Remove
+          println("Resolving: " + $messageToResolve)
           var $retry: Boolean = false
           val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
           ..$patternChecks
