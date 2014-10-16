@@ -31,7 +31,7 @@ trait LockFreeTransform extends Transform {
     val eventsToIds: Map[Event, Long] = 
       events.zipWithIndex.map({ case (event, index) => (event, 1L << index) }).toMap
     // This block will be called once the joined observable has completed
-    val unsubscribeAllBlock = q"..${observablesToSubscribers.map({ case (_, subscriber) => unsubscribe(subscriber) })}"
+    val unsubscribeAllBlock = q"""debug("unsubscribing"); ..${observablesToSubscribers.map({ case (_, subscriber) => unsubscribe(subscriber) })}"""
     // Queue declarations for buffering Next event messages
     val queueDeclarations = nextEventsToQueues.map({ case (event, queueName) =>
         val messageType = typeArgumentOf(event.source)
@@ -77,18 +77,18 @@ trait LockFreeTransform extends Transform {
           val $head = $myQueue.peek()
           if ($head == null) {
             return if ($resolveMessage.source == $eventId) {
-              debug("Decided Resolved")
+              debug("Resolved because other used my message")
               _root_.scala.async.internal.imports.nondeterministic.Resolved
             }
             else {
-              debug("Decided no match")
+              debug("No Match because of empty other queue")
               _root_.scala.async.internal.imports.nondeterministic.NoMatch
             }
           } else if ($head.status() == _root_.scala.async.internal.imports.nondeterministic.Claimed) {
-            debug("Decided Retry")
+            debug("Decided retry because of claimed head")
             return _root_.scala.async.internal.imports.nondeterministic.Retry
           } else {
-            debug("Adding to claim messages")
+            debug("Marking to claim")
             if ($resolveMessage.source == $eventId && !($head eq $resolveMessage)) return _root_.scala.async.internal.imports.nondeterministic.Resolved
             $messagesToClaim = $head :: $messagesToClaim
           }
@@ -173,6 +173,7 @@ trait LockFreeTransform extends Transform {
         $call match {
           case _root_.scala.async.internal.imports.nondeterministic.Resolved => return
           case _root_.scala.async.internal.imports.nondeterministic.Retry => { $retry = true }
+          case _ =>
         }
         """)
       val mySubscriber = observablesToSubscribers.get(occuredEvent.source).get
