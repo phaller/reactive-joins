@@ -216,9 +216,14 @@ trait LockFreeTransform extends Transform {
             $myQueueLock.unclaim()
           """
         case error: Error =>
-          q"resolve(_root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId))"
+          val myErrorVar = errorEventsToVars.get(error).get
+          q"""$myErrorVar = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
+          resolve($myErrorVar)"""
         case done: Done =>
-          q"resolve(_root_.scala.async.internal.imports.nondeterministic.Message((), $eventId))"
+          val myDoneVar = doneEventsToVars.get(done).get
+          q"""
+          $myDoneVar = _root_.scala.async.internal.imports.nondeterministic.Message((), $eventId)
+          resolve($myDoneVar)"""
         case _ => 
           c.error(c.enclosingPosition, s"Filters on next events are not yet supported.")
           EmptyTree
