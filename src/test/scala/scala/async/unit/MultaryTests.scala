@@ -9,63 +9,63 @@ import rx.lang.scala.Observable
 // Test the join keyword with multiple source Observables
 class MultaryTests {
 
-  // @Test
-  // def binaryOrJoin() = {
-  //   val size = randomNonZeroEvenInteger(maxListSize)
-  //   val input = List.fill(size)(())
+  @Test
+  def binaryOrJoin() = {
+    val size = randomNonZeroEvenInteger(maxListSize)
+    val input = List.fill(size)(())
 
-  //   val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-  //   val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
-  //   val obs = join {
-  //     case o1(x) => Next(x)
-  //     case o2(y) => Next(y)
-  //     case o1.done && o2.done => Done
-  //   }
+    val obs = join {
+      case o1(x) => Next(x)
+      case o2(y) => Next(y)
+      case o1.done && o2.done => Done
+    }
 
-  //   val result = obs.toBlocking.toList
-  //   assert(result.size == (size * 2))
-  // }
+    val result = obs.toBlocking.toList
+    assert(result.size == (size * 2))
+  }
 
-  // @Test
-  // def binaryAndJoin() = {
-  //   val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-  //   val fn = (x: Int, y: Int) => x + y
-  //   val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
+  @Test
+  def binaryAndJoin() = {
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+    val fn = (x: Int, y: Int) => x + y
+    val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
 
-  //   val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-  //   val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
-  //   val obs = join {
-  //     case o1(x) && o2(y) => Next(fn(x, y))
-  //     case o1.done && o2.done => Done
-  //   }
+    val obs = join {
+      case o1(x) && o2(y) => Next(fn(x, y))
+      case o1.done && o2.done => Done
+    }
 
-  //   val result = obs.toBlocking.toList
-  //   assert(result == expected)
-  // }
+    val result = obs.toBlocking.toList
+    assert(result == expected)
+  }
 
-  //   @Test
-  // def binaryAndOrJoin() = {
-  //   val full = randomNonZeroEvenInteger(maxListSize)
-  //   val half = full / 2
+    @Test
+  def binaryAndOrJoin() = {
+    val full = randomNonZeroEvenInteger(maxListSize)
+    val half = full / 2
 
-  //   val o1 = Observable.just(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-  //   val o2 = Observable.just(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-  //   val o3 = Observable.just(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o1 = Observable.just(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o2 = Observable.just(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+    val o3 = Observable.just(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
-  //   val obs = join {
-  //     case o1(x) && o2(y) => Next(true)
-  //     case o1(x) && o3(y) => Next(false)
-  //     case o1.done && o2.done && o3.done => Done
-  //   }
+    val obs = join {
+      case o1(x) && o2(y) => Next(true)
+      case o1(x) && o3(y) => Next(false)
+      case o1.done && o2.done && o3.done => Done
+    }
 
-  //   val result = obs.toBlocking.toList
-  //   assert(result.filter(identity).size == half)
-  //   assert(result.filter(x => !x).size == half)
-  // }
+    val result = obs.toBlocking.toList
+    assert(result.filter(identity).size == half)
+    assert(result.filter(x => !x).size == half)
+  }
 
-  // // TODO: Figure out how to test the mixed-pattern semantics
+  // TODO: Figure out how to test the mixed-pattern semantics
   // @Test
   // def doneSemantics {
   //   val input1 = List.fill(randomNonZeroEvenInteger(maxListSize))(1)

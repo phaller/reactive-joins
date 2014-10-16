@@ -94,6 +94,10 @@ trait LockFreeTransform extends Transform {
           }
         """
       })
+      val patternGuardHandler = pattern.guardTree match {
+          case EmptyTree => EmptyTree
+          case guardTree =>  q"if (!$guardTree) return _root_.scala.async.internal.imports.nondeterministic.NoMatch"
+      }
       // After we collected enough messages to claim, we try to do so. If we fail this means we lost a race against another resolving thread
       val claimedMessages = fresh("claimedMessages")
       // But before we do that, we need to prepated for the case when we can match
@@ -155,6 +159,7 @@ trait LockFreeTransform extends Transform {
           ..$errorHandler
           ..$doneHandler
           ..$nextHandler
+          $patternGuardHandler
           $claimMessages
         }
       """
