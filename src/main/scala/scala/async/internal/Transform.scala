@@ -231,6 +231,7 @@ trait LockFreeTransform extends Transform {
      ..$subscriberVarDeclarations
      ..${patternMatchHandler.map(_._2._2)}
      ..$subscriberDeclarations
+     ..$subscriptions
     """
     // Find the type of elements the generated observable will emit
     val resultType = implicitly[WeakTypeTag[A]].tpe
