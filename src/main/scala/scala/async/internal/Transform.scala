@@ -130,10 +130,11 @@ trait LockFreeTransform extends Transform {
       // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
       val patternBody = generateReturnExpression(parsePatternBody(rawPatternBody), names.outSubscriber, afterDone = Some(unsubscribeAllBlock))
       val claimMessages = q"""
-        val $claimedMessages = $messagesToClaim.map(message => if (!message.tryClaim()) message)
+        val $claimedMessages = $messagesToClaim.filter(message => message.tryClaim())
+        debug("Claimed: " + $claimedMessages)
         if ($claimedMessages.size != $messagesToClaim.size) {
-          $claimedMessages.foreach(m => m.asInstanceOf[_root_.scala.async.internal.imports.nondeterministic.Message[Any]].unclaim())
           debug("Lost race. Retry.")
+          $claimedMessages.foreach(m => m.asInstanceOf[_root_.scala.async.internal.imports.nondeterministic.Message[Any]].unclaim())
           return _root_.scala.async.internal.imports.nondeterministic.Retry
         } else {
           ..${dequeueStatements.map({ case (stats, _) => stats })}
@@ -178,12 +179,13 @@ trait LockFreeTransform extends Transform {
       val resolve = q"""
         @_root_.scala.annotation.tailrec
         def resolve[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A]): Unit = {
-          // TODO: Remove
           debug("Resolving: " + $messageToResolve)
           var $retry: Boolean = false
           val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
           ..$patternChecks
+          debug("Message was not resolved")
           if ($retry && !${isUnsubscribed(mySubscriber)}) {
+            debug("Retry in progress")
             $backoff.once()
             resolve($messageToResolve)
           }
@@ -199,11 +201,14 @@ trait LockFreeTransform extends Transform {
           val addToAndClaimQueue = q"""
             @_root_.scala.annotation.tailrec
             def addToAndClaimQueue(): Unit = {
+              debug("AddToAndClaimQueue" + $myQueue)
               val $myBackoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
               if (!$myQueueLock.tryClaim()) {
+                debug("AddToAndClaimQueue backoff once")
                 $myBackoff.once()
                 addToAndClaimQueue()
               } else {
+                debug("Added!")
                 $myQueue.add($myMessage)
               } 
             }"""
@@ -229,6 +234,7 @@ trait LockFreeTransform extends Transform {
           EmptyTree
       }
       q"""
+      debug("Got new Message!")
       $resolve
       ..$storeEventStatement
       """
