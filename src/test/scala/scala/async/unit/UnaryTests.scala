@@ -21,9 +21,12 @@ class UnaryTests {
       case o1.done => Done
     }
 
-    val result = obs.toBlocking.toList
+    obs.subscribe(println(_))
+    readLine()
+    ()
+    // val result = obs.toBlocking.toList
     
-    assert(result == expected)
+    // assert(result == expected)
   }
 
   // @Test

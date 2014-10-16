@@ -76,13 +76,19 @@ trait LockFreeTransform extends Transform {
         q"""
           val $head = $myQueue.peek()
           if ($head == null) {
-            return if ($resolveMessage.source == $eventId)
+            return if ($resolveMessage.source == $eventId) {
+              debug("Decided Resolved")
               _root_.scala.async.internal.imports.nondeterministic.Resolved
-            else 
+            }
+            else {
+              debug("Decided no match")
               _root_.scala.async.internal.imports.nondeterministic.NoMatch
+            }
           } else if ($head.status() == _root_.scala.async.internal.imports.nondeterministic.Claimed) {
+            debug("Decided Retry")
             return _root_.scala.async.internal.imports.nondeterministic.Retry
           } else {
+            debug("Adding to claim messages")
             if ($resolveMessage.source == $eventId && !($head eq $resolveMessage)) return _root_.scala.async.internal.imports.nondeterministic.Resolved
             $messagesToClaim = $head :: $messagesToClaim
           }
@@ -127,6 +133,7 @@ trait LockFreeTransform extends Transform {
         val $claimedMessages = $messagesToClaim.map(message => if (!message.tryClaim()) message)
         if ($claimedMessages.size != $messagesToClaim.size) {
           $claimedMessages.foreach(m => m.asInstanceOf[_root_.scala.async.internal.imports.nondeterministic.Message[Any]].unclaim())
+          debug("Lost race. Retry.")
           return _root_.scala.async.internal.imports.nondeterministic.Retry
         } else {
           ..${dequeueStatements.map({ case (stats, _) => stats })}
@@ -135,14 +142,14 @@ trait LockFreeTransform extends Transform {
           ..${retrieveErrorStatements.map({ case (_, stats) => stats })}
           ..$retrieveDoneStatements
           ..$patternBody
-          println("Matched pattern!")
+          debug("Matched pattern! Resolved.")
           return _root_.scala.async.internal.imports.nondeterministic.Resolved
       }
       """
       // The full checking of a pattern involves finding error, done, and next messages to claim,
       // trying to claim them, and if successful: execute pattern matching!
       name -> q"""def $name[A]($resolveMessage: _root_.scala.async.internal.imports.nondeterministic.Message[A]): _root_.scala.async.internal.imports.nondeterministic.MatchResult = {
-          println("Checking pattern " + $resolveMessage)
+          debug("Checking pattern " + $resolveMessage)
           var $messagesToClaim = _root_.scala.collection.immutable.List.empty[_root_.scala.async.internal.imports.nondeterministic.Message[Any]]
           ..$errorHandler
           ..$doneHandler
@@ -172,7 +179,7 @@ trait LockFreeTransform extends Transform {
         @_root_.scala.annotation.tailrec
         def resolve[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A]): Unit = {
           // TODO: Remove
-          println("Resolving: " + $messageToResolve)
+          debug("Resolving: " + $messageToResolve)
           var $retry: Boolean = false
           val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
           ..$patternChecks
@@ -231,6 +238,7 @@ trait LockFreeTransform extends Transform {
     val queueLocks = queuesToLocks.map({ case (_, lockName) => q"val $lockName = _root_.scala.async.internal.imports.nondeterministic.QueueLock()"})
     // Putting it all together
     val onSubscribe = q"""
+      def debug(s: String) = println("[join] Thread" + Thread.currentThread.getId + ": " + s)
      ..$queueLocks
      ..$queueDeclarations
      ..$errorVarDeclarations
