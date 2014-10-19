@@ -16,6 +16,8 @@ final class Backoff {
   var seed: Long = Thread.currentThread.getId
   var count = 0
 
+  def getCount() = count
+
   // compute6 from j.u.c.
   private def noop(times: Int = 1): Int = {
     var seed: Int = 1
