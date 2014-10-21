@@ -28,7 +28,7 @@ trait ReactiveSystem {
 }
 
 trait RxJavaSystem extends ReactiveSystem {
-  self: JoinMacro =>
+  self: JoinMacro with Util with Parse =>
   import c.universe._
 
   def createVariableStoringSubscriber: (TermName, Type) => Tree = 

@@ -11,4 +11,8 @@ object Util {
   val newThreadScheduler = NewThreadScheduler()
 
   val maxListSize = 50 
+
+  // Uncomment this to run the tests with the deterministic lock-transform. 
+  // The default transform is the non-deterministic lock-free transform.
+  // implicit val checkOrder = scala.async.Join.InOrder
 }

@@ -1,7 +1,7 @@
 package scala.async.internal 
 
 trait ReactiveSystemHelper {
-  self: JoinMacro with ReactiveSystem with Util => 
+  self: JoinMacro with Parse with ReactiveSystem with Util => 
   import c.universe._
   import scala.async.Join.{JoinReturn, Next => ReturnNext, Done => ReturnDone, Pass => ReturnPass}
 

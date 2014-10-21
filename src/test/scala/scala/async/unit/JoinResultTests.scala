@@ -22,8 +22,6 @@ class JoinResultTests {
       case o1.done => Done
     }
     val result = obs.toBlocking.toList 
-    println(input)
-    println(result)
     assert(result == input.tail)
   }
 

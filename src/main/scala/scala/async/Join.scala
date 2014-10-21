@@ -57,6 +57,15 @@ object Join {
     implicit val defaultBufferSize = BufferSize(Long.MaxValue)
   }
 
+  // Used to configure whether the patterns are checked in the order given, or not.
+  sealed trait CheckOrder
+  case object InOrder extends CheckOrder
+  case object NoOrder extends CheckOrder
+
+  object CheckOrder {
+    implicit val checkOrder = NoOrder
+  }
+
   def join[A](pf: PartialFunction[JoinObservable[_], JoinReturn[A]]): Observable[A] = macro internal.JoinBase.joinImpl[A]
 
 }
