@@ -14,7 +14,6 @@ trait NonDeterministicChoice extends JoinMacro with LockFreeTransform with Parse
 
 object JoinMacro {
 
-
   def apply(c0: Context) = {
     import c0.universe._
     import scala.async.Join.{CheckOrder, InOrder, NoOrder}
@@ -26,9 +25,7 @@ object JoinMacro {
       new DeterministicChoice {
         val c: c0.type = c0
       }
-    }
-    else
-    {
+    } else {
       Debug.printCT("The transform used implements non-deterministic choice.") 
       new NonDeterministicChoice {
         val c: c0.type = c0
