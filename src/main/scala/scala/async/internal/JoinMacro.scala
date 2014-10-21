@@ -22,14 +22,14 @@ object JoinMacro {
     val checkOrder = c0.inferImplicitValue(typeOf[CheckOrder])
     
     if (checkOrder.tpe == typeOf[InOrder.type]) {
-      Debug.printCT("DETERMINISTIC") 
+      Debug.printCT("The transform used implements deterministic choice.") 
       new DeterministicChoice {
         val c: c0.type = c0
       }
     }
     else
     {
-      Debug.printCT("NON DETERMINISTIC") 
+      Debug.printCT("The transform used implements non-deterministic choice.") 
       new NonDeterministicChoice {
         val c: c0.type = c0
       }
