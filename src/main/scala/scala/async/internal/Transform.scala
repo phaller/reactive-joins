@@ -131,6 +131,7 @@ trait LockFreeTransform extends Transform {
       val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, pattern.bodyTree)
       // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
       val patternBody = generateReturnExpression(parsePatternBody(rawPatternBody), names.outSubscriber, afterDone = Some(unsubscribeAllBlock))
+      // YOU WERE HERE: DO THE MESSAGE CLAIMING WITHOUT THE LIST!
       val claimMessages = q"""
         val $claimedMessages = $messagesToClaim.filter(message => message.tryClaim())
         if ($claimedMessages.size != $messagesToClaim.size) {
@@ -258,7 +259,6 @@ trait LockFreeTransform extends Transform {
     createPublisher(onSubscribe, names.outSubscriber, resultType)
   }
 }
-
 
 trait LockTransform extends Transform { 
   self: JoinMacro with Parse with ReactiveSystem with ReactiveSystemHelper with Backpressure with Util =>

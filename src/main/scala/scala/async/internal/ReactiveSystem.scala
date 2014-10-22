@@ -85,7 +85,7 @@ trait RxJavaSystem extends ReactiveSystem {
   def requestMore(subscriber: TermName, value: Tree): Tree = q"$subscriber.asInstanceOf[_root_.scala.async.internal.imports.SubscriberAdapter[_]].requestMore($value)"
 
   def createPublisher(onSubscribe: Tree, argument: TermName, tpe: Type): Tree = 
-    q"_root_.rx.lang.scala.Observable(($argument: _root_.rx.lang.scala.Subscriber[$tpe]) => { $onSubscribe })"
+    q"_root_.rx.lang.scala.Observable(($argument: _root_.rx.lang.scala.Subscriber[$tpe]) => { $onSubscribe }).serialize()"
 
   def next(subscriber: TermName, value: Tree): Tree = q"$subscriber.onNext($value)"
   def error(subscriber: TermName, throwable: Tree): Tree = q"$subscriber.onError($throwable)"
