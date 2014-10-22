@@ -181,7 +181,6 @@ trait LockFreeTransform extends Transform {
         @_root_.scala.annotation.tailrec
         def resolve[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A]): Unit = {
           var $retry: Boolean = false
-          val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
           ..$patternChecks
           if ($retry) {
             $backoff.once()
@@ -230,6 +229,7 @@ trait LockFreeTransform extends Transform {
       }
       q"""
       if (${isUnsubscribed(mySubscriber)}) return
+      val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
       $resolve
       ..$storeEventStatement
       """
