@@ -48,7 +48,6 @@ trait LockFreeTransform extends Transform {
     // Every pattern has its own handler function which can be called by any event-handler involved in a pattern
     val patternMatchHandler = freshNames(patterns.toList, "checkPattern").map({ case (pattern, name) => pattern -> {
       val resolveMessage = fresh("resolveMessage")
-      val messagesToClaim = fresh("messagesToClaim")
       val errors = pattern.events.errors.toList
       val dones = pattern.events.dones.toList
       val nexts = pattern.events.nexts.toList
@@ -62,19 +61,19 @@ trait LockFreeTransform extends Transform {
             }
           } else if ($eventVar.status() == _root_.scala.async.internal.imports.nondeterministic.Claimed) {
             return _root_.scala.async.internal.imports.nondeterministic.Retry
-          } else { 
-            $messagesToClaim = $eventVar :: $messagesToClaim
           }
         """
       val errorHandler = errors.map(event => errorOrdoneHandler(errorEventsToVars.get(event).get, eventsToIds.get(event).get))
       val doneHandler = dones.map(event => errorOrdoneHandler(doneEventsToVars.get(event).get, eventsToIds.get(event).get))
       // Message of type onNext are handled very similarly to onDone, onError but include
+      val queueHeads = freshNames(nexts, "head")
+      val headVars = queueHeads.map({ case (_, name) => q"var $name: _root_.scala.async.internal.imports.nondeterministic.Message[Any] = null"})
       val nextHandler = nexts.map(event => {
-        val head = fresh("head")
+        val head = queueHeads.get(event).get
         val myQueue = nextEventsToQueues.get(event).get
         val eventId = eventsToIds.get(event).get
         q"""
-          val $head = $myQueue.peek()
+          $head = $myQueue.peek()
           if ($head == null) {
             return if ($resolveMessage.source == $eventId) {
               _root_.scala.async.internal.imports.nondeterministic.Resolved
@@ -88,7 +87,6 @@ trait LockFreeTransform extends Transform {
             if ($resolveMessage.source == $eventId && !($head eq $resolveMessage)) {
               return _root_.scala.async.internal.imports.nondeterministic.Resolved
             }
-            $messagesToClaim = $head :: $messagesToClaim
           }
         """
       })
@@ -96,8 +94,6 @@ trait LockFreeTransform extends Transform {
           case EmptyTree => EmptyTree
           case guardTree =>  q"if (!$guardTree) return _root_.scala.async.internal.imports.nondeterministic.NoMatch"
       }
-      // After we collected enough messages to claim, we try to do so. If we fail this means we lost a race against another resolving thread
-      val claimedMessages = fresh("claimedMessages")
       // But before we do that, we need to prepated for the case when we can match
       val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
       val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
@@ -113,6 +109,7 @@ trait LockFreeTransform extends Transform {
         requestMoreStats)
       })
       // Consume the error vars by storing them in a different variable, and setting the errorVar to null
+      // TODO: pattern.events.error -> errors?
       val retrievedErrorVals = freshNames(pattern.events.errors, "unwrapedError").toList
       val retrieveErrorStatements = retrievedErrorVals.map({ case (event, name) => 
         val errorVar = errorEventsToVars.get(event).get
@@ -131,31 +128,36 @@ trait LockFreeTransform extends Transform {
       val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, pattern.bodyTree)
       // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
       val patternBody = generateReturnExpression(parsePatternBody(rawPatternBody), names.outSubscriber, afterDone = Some(unsubscribeAllBlock))
-      // YOU WERE HERE: DO THE MESSAGE CLAIMING WITHOUT THE LIST!
-      val claimMessages = q"""
-        val $claimedMessages = $messagesToClaim.filter(message => message.tryClaim())
-        if ($claimedMessages.size != $messagesToClaim.size) {
-          $claimedMessages.foreach(m => m.asInstanceOf[_root_.scala.async.internal.imports.nondeterministic.Message[Any]].unclaim())
+      val messagesToClaim = queueHeads.map(_._2) ++ errors.map(event => errorEventsToVars.get(event).get) ++ dones.map(event => doneEventsToVars.get(event).get)
+      val messagesToUnclaim = messagesToClaim.inits.toSeq.reverse
+      val claims = messagesToClaim.zipWithIndex.map({ case (messageToClaim, index) => {
+        val unclaimMessages = messagesToUnclaim(index).map(message => q"$message.unclaim")
+        q"""
+        if (!$messageToClaim.tryClaim) {
+          ..$unclaimMessages
           return _root_.scala.async.internal.imports.nondeterministic.Retry
-        } else {
-          ..${dequeueStatements.map({ case (stats, _) => stats })}
-          ..${dequeueStatements.map({ case (_, stats) => stats })}
-          ..${retrieveErrorStatements.map({ case (stats, _) => stats })}
-          ..${retrieveErrorStatements.map({ case (_, stats) => stats })}
-          ..$retrieveDoneStatements
-          ..$patternBody
-          return _root_.scala.async.internal.imports.nondeterministic.Resolved
-      }
+        }"""
+      }})
+      val dequeueAndExecute = q"""
+        ..${dequeueStatements.map({ case (stats, _) => stats })}
+        ..${dequeueStatements.map({ case (_, stats) => stats })}
+        ..${retrieveErrorStatements.map({ case (stats, _) => stats })}
+        ..${retrieveErrorStatements.map({ case (_, stats) => stats })}
+        ..$retrieveDoneStatements
+        ..$patternBody
+        return _root_.scala.async.internal.imports.nondeterministic.Resolved
       """
       // The full checking of a pattern involves finding error, done, and next messages to claim,
       // trying to claim them, and if successful: execute pattern matching!
+      // TODO: next first, before error, or done?
       name -> q"""def $name[A]($resolveMessage: _root_.scala.async.internal.imports.nondeterministic.Message[A]): _root_.scala.async.internal.imports.nondeterministic.MatchResult = {
-          var $messagesToClaim = _root_.scala.collection.immutable.List.empty[_root_.scala.async.internal.imports.nondeterministic.Message[Any]]
           ..$errorHandler
           ..$doneHandler
+          ..$headVars
           ..$nextHandler
           $patternGuardHandler
-          $claimMessages
+          ..$claims
+          ..$dequeueAndExecute
         }
       """
     }})

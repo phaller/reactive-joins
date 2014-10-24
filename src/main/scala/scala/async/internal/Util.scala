@@ -11,7 +11,7 @@ trait Util {
   // should cause a error.
   def typeArgumentOf(sym: Symbol) = 
     sym.typeSignature.asInstanceOf[TypeRefApi].args.head
-
+ 
   // Generates a TermName with a fresh name in the context
   def fresh(name: String): TermName = TermName(c.freshName(name))
 
