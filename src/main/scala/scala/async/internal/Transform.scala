@@ -53,13 +53,13 @@ trait LockFreeTransform extends Transform {
       val nexts = pattern.events.nexts.toList
       // Messages of type done, and error are handled in the same way
       val errorOrdoneHandler = (eventVar: TermName, eventId: Long) => q"""
-          if ($eventVar == null) {
+          if ($eventVar eq null) {
             return if ($resolveMessage.source == $eventId) {
               _root_.scala.async.internal.imports.nondeterministic.Resolved
             } else {
               _root_.scala.async.internal.imports.nondeterministic.NoMatch
             }
-          } else if ($eventVar.status() == _root_.scala.async.internal.imports.nondeterministic.Claimed) {
+          } else if ($eventVar.status() eq _root_.scala.async.internal.imports.nondeterministic.Claimed) {
             return _root_.scala.async.internal.imports.nondeterministic.Retry
           }
         """
@@ -74,14 +74,14 @@ trait LockFreeTransform extends Transform {
         val eventId = eventsToIds.get(event).get
         q"""
           $head = $myQueue.peek()
-          if ($head == null) {
+          if ($head eq null) {
             return if ($resolveMessage.source == $eventId) {
               _root_.scala.async.internal.imports.nondeterministic.Resolved
             }
             else {
               _root_.scala.async.internal.imports.nondeterministic.NoMatch
             }
-          } else if ($head.status() == _root_.scala.async.internal.imports.nondeterministic.Claimed) {
+          } else if ($head.status() eq _root_.scala.async.internal.imports.nondeterministic.Claimed) {
             return _root_.scala.async.internal.imports.nondeterministic.Retry
           } else {
             if ($resolveMessage.source == $eventId && !($head eq $resolveMessage)) {
