@@ -35,7 +35,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
         var j = 0
         while (j < size) {
-          val size = 1024
+          val internalSize = 1024
 
           val s1 = Subject[Int]
           val s2 = Subject[Int]
@@ -57,12 +57,12 @@ class RxReactBench extends PerformanceTest.OfflineReport {
           val obs = join {
             case o1(x) && o2(y) && o3(z) => {
               counter.incrementAndGet()
-              if (counter.get == (size * 2)) { latch.countDown }
+              if (counter.get == (internalSize * 2)) { latch.countDown }
               Pass
             }
             case o4(x) && o5(y) && o6(z) => {
               counter.incrementAndGet()
-              if (counter.get == (size * 2)) { latch.countDown }
+              if (counter.get == (internalSize * 2)) { latch.countDown }
               Pass
             }
           }
@@ -71,12 +71,12 @@ class RxReactBench extends PerformanceTest.OfflineReport {
             (_: Throwable) => (),
             () => ())
 
-          val thread1 = sendIndexFromThread(s1, size)
-          val thread2 = sendIndexFromThread(s2, size)
-          val thread3 = sendIndexFromThread(s3, size)
-          val thread4 = sendIndexFromThread(s4, size)
-          val thread5 = sendIndexFromThread(s5, size)
-          val thread6 = sendIndexFromThread(s6, size)
+          val thread1 = sendIndexFromThread(s1, internalSize)
+          val thread2 = sendIndexFromThread(s2, internalSize)
+          val thread3 = sendIndexFromThread(s3, internalSize)
+          val thread4 = sendIndexFromThread(s4, internalSize)
+          val thread5 = sendIndexFromThread(s5, internalSize)
+          val thread6 = sendIndexFromThread(s6, internalSize)
 
           thread1.start()
           thread2.start()
@@ -103,7 +103,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
         var j = 0
         while (j < size) {
-          val size = 1024
+          val internalSize = 1024
 
           val s1 = Subject[Int]
           val s2 = Subject[Int]
@@ -124,24 +124,24 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
           val p1 = RxJoinObservable.from(o1).and(o2).and(o3).then((x: Int, y: Int, z: Int) => {
             counter.incrementAndGet()
-            if (counter.get == (size * 2)) { latch.countDown }
+            if (counter.get == (internalSize * 2)) { latch.countDown }
           })
 
           val p2 = RxJoinObservable.from(o4).and(o5).and(o6).then((x: Int, y: Int, z: Int) => {
             counter.incrementAndGet()
-            if (counter.get == (size * 2)) { latch.countDown }
+            if (counter.get == (internalSize * 2)) { latch.countDown }
           })
 
           val result = RxJoinObservable.when(p1, p2).toObservable
 
           result.subscribe((_: Unit) => (), (_: Throwable) => (), () => ())
 
-          val thread1 = sendIndexFromThread(s1, size)
-          val thread2 = sendIndexFromThread(s2, size)
-          val thread3 = sendIndexFromThread(s3, size)
-          val thread4 = sendIndexFromThread(s4, size)
-          val thread5 = sendIndexFromThread(s5, size)
-          val thread6 = sendIndexFromThread(s6, size)
+          val thread1 = sendIndexFromThread(s1, internalSize)
+          val thread2 = sendIndexFromThread(s2, internalSize)
+          val thread3 = sendIndexFromThread(s3, internalSize)
+          val thread4 = sendIndexFromThread(s4, internalSize)
+          val thread5 = sendIndexFromThread(s5, internalSize)
+          val thread6 = sendIndexFromThread(s6, internalSize)
 
           thread1.start()
           thread2.start()
