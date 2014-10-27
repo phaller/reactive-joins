@@ -72,7 +72,7 @@ class MultaryTests {
     import rx.lang.scala.JavaConversions._
 
     var j = 0
-    while (j < 100000) {
+    while (j < 1000) {
       val size = 1024
 
       val s1 = Subject[Int]

@@ -1,151 +1,165 @@
-// package scala.async.tests
+package scala.async.tests
 
-// import scala.async.Join._
-// import rx.lang.scala._
-// import rx.observables.{JoinObservable => RxJoinObservable}
-// import scala.async.tests.Util._
-// import java.util.concurrent.CountDownLatch
+import scala.async.Join._
+import rx.lang.scala._
+import rx.observables.{ JoinObservable => RxJoinObservable }
+import scala.async.tests.Util._
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
+import rx.lang.scala.Subject
+import rx.lang.scala.subjects.ReplaySubject
+import org.scalameter.api._
 
-// import org.scalameter.api._
+class RxReactBench extends PerformanceTest.OfflineReport {
 
-// class RxReactBench extends PerformanceTest.OfflineReport {
-  
-//   // Choose even sizes!
-//   val sumSizes = Gen.range("LockFreeJoins")(100000, 100000, 100000)
+  def sendIndexFromThread(s: Subject[Int], repeats: Int) = new Thread(new Runnable {
+    def run() {
+      var i = 0
+      while (i < repeats) {
+        s.onNext(i)
+        i = i + 1
+      }
+      s.onCompleted()
+    }
+  })
 
-//   performance of "zipMap" config(
-//     exec.minWarmupRuns -> 50,
-//     exec.maxWarmupRuns -> 100,
-//     exec.benchRuns -> 30,
-//     exec.independentSamples -> 1
-//   ) in {
+  val sumSizes = Gen.range("LockFreeJoins")(100, 100, 10)
 
-//     using(sumSizes) curve("Us") in { size =>
-      
-//       val o1 = Observable.just(1).repeat(size).observeOn(newThreadScheduler).p
-//       val o2 = Observable.just(2).repeat(size).observeOn(newThreadScheduler).p
-//       // val o3 = Observable.just(3).repeat(size).observeOn(newThreadScheduler).p
-//       // val o4 = Observable.just(4).repeat(size).observeOn(newThreadScheduler).p
-//       // val o5 = Observable.just(5).repeat(size).observeOn(newThreadScheduler).p
-//       // val o6 = Observable.just(6).repeat(size).observeOn(newThreadScheduler).p
+  performance of "zipMap" config (
+    exec.minWarmupRuns -> 50,
+    exec.maxWarmupRuns -> 100,
+    exec.benchRuns -> 30,
+    exec.independentSamples -> 1) in {
 
-//       val latch = new CountDownLatch(size)
+      using(sumSizes) curve ("Us") in { size =>
 
-//       val result = join {
-//         case o1(x) && o2(y) => ()
-//         // case o1(x) && o3(y) => ()
+        var j = 0
+        while (j < size) {
+          val size = 1024
 
-//         // case o1(x) && o3(y) => latch.countDown() 
-//         // case o1(x) && o4(y) => latch.countDown() 
-//         // case o1(x) && o5(y) => latch.countDown() 
-//         // case o1(x) && o6(y) => latch.countDown() 
-//         // case o2(x) && o3(y) => latch.countDown() 
-//         // case o2(x) && o4(y) => latch.countDown() 
-//         // case o2(x) && o5(y) => latch.countDown() 
-//         // case o2(x) && o6(y) => latch.countDown() 
-//         // case o3(x) && o4(y) => latch.countDown()
-//         // case o3(x) && o5(y) => latch.countDown()
-//         // case o3(x) && o6(y) => latch.countDown()
-//         // case o4(x) && o5(y) => latch.countDown()
-//         // case o4(x) && o6(y) => latch.countDown()
-//         // case o5(x) && o6(y) => latch.countDown() 
-//         // case o1.done && o2.done && o3.done && o4.done && o5.done && o6.done => Done
-//       }
+          val s1 = Subject[Int]
+          val s2 = Subject[Int]
+          val s3 = Subject[Int]
+          val s4 = Subject[Int]
+          val s5 = Subject[Int]
+          val s6 = Subject[Int]
 
-//       result.subscribe((_: Unit) => latch.countDown(), (e: Throwable) => (), () => ())
-//       latch.await
+          val latch = new CountDownLatch(1)
+          val counter = new AtomicInteger(0)
 
-//     }
+          val o1 = s1.observeOn(newThreadScheduler).p
+          val o2 = s2.observeOn(newThreadScheduler).p
+          val o3 = s3.observeOn(newThreadScheduler).p
+          val o4 = s4.observeOn(newThreadScheduler).p
+          val o5 = s5.observeOn(newThreadScheduler).p
+          val o6 = s6.observeOn(newThreadScheduler).p
 
-//     using(sumSizes) curve("ReactiveX") in { size =>
-//       import rx.Observable._
-//       import rx.lang.scala.ImplicitFunctionConversions._
-//       import rx.lang.scala.JavaConversions._
+          val obs = join {
+            case o1(x) && o2(y) && o3(z) => {
+              counter.incrementAndGet()
+              if (counter.get == (size * 2)) { latch.countDown }
+              Pass
+            }
+            case o4(x) && o5(y) && o6(z) => {
+              counter.incrementAndGet()
+              if (counter.get == (size * 2)) { latch.countDown }
+              Pass
+            }
+          }
 
-//       val latch = new CountDownLatch(size)
+          obs.subscribe((_: Unit) => (),
+            (_: Throwable) => (),
+            () => ())
 
-//       val o1 = Observable.just(1).repeat(size).observeOn(newThreadScheduler)
-//       val o2 = Observable.just(2).repeat(size).observeOn(newThreadScheduler)
-//       // val o3 = Observable.just(3).repeat(size).observeOn(newThreadScheduler)
-//       // val o4 = Observable.just(4).repeat(size).observeOn(newThreadScheduler)
-//       // val o5 = Observable.just(5).repeat(size).observeOn(newThreadScheduler)
-//       // val o6 = Observable.just(6).repeat(size).observeOn(newThreadScheduler)
+          val thread1 = sendIndexFromThread(s1, size)
+          val thread2 = sendIndexFromThread(s2, size)
+          val thread3 = sendIndexFromThread(s3, size)
+          val thread4 = sendIndexFromThread(s4, size)
+          val thread5 = sendIndexFromThread(s5, size)
+          val thread6 = sendIndexFromThread(s6, size)
 
-//       val p1 = RxJoinObservable.from(o1).and(o2).then((x: Int, y: Int) => ())
-//       // val p2 = RxJoinObservable.from(o1).and(o3).then((x: Int, y: Int) => ())
-//       // val p3 = RxJoinObservable.from(o1).and(o4).then((x: Int, y: Int) => latch.countDown())
-//       // val p4 = RxJoinObservable.from(o1).and(o5).then((x: Int, y: Int) => latch.countDown())
-//       // val p5 = RxJoinObservable.from(o1).and(o6).then((x: Int, y: Int) => latch.countDown())
-//       // val p6 = RxJoinObservable.from(o2).and(o3).then((x: Int, y: Int) => latch.countDown())
-//       // val p7 = RxJoinObservable.from(o2).and(o4).then((x: Int, y: Int) => latch.countDown())
-//       // val p8 = RxJoinObservable.from(o2).and(o5).then((x: Int, y: Int) => latch.countDown())
-//       // val p9 = RxJoinObservable.from(o2).and(o6).then((x: Int, y: Int) => latch.countDown())
-//       // val p10 = RxJoinObservable.from(o3).and(o4).then((x: Int, y: Int) => latch.countDown())
-//       // val p11 = RxJoinObservable.from(o3).and(o5).then((x: Int, y: Int) => latch.countDown())
-//       // val p12 = RxJoinObservable.from(o3).and(o6).then((x: Int, y: Int) => latch.countDown())
-//       // val p13 = RxJoinObservable.from(o4).and(o5).then((x: Int, y: Int) => latch.countDown())
-//       // val p14 = RxJoinObservable.from(o4).and(o6).then((x: Int, y: Int) => latch.countDown())
-//       // val p15 = RxJoinObservable.from(o5).and(o6).then((x: Int, y: Int) => latch.countDown())
+          thread1.start()
+          thread2.start()
+          thread3.start()
+          thread4.start()
+          thread5.start()
+          thread6.start()
 
-//       // val result = RxJoinObservable.when(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p12, p14, p15).toObservable
-      
-//       val result = RxJoinObservable.when(p1).toObservable
+          latch.await
 
-//       result.subscribe((_: Unit) => latch.countDown(), (e: Throwable) => (), () => ())
+          thread1.join()
+          thread2.join()
+          thread3.join()
+          thread4.join()
+          thread5.join()
+          thread6.join()
+          j = j + 1
+        }
+      }
 
-//       latch.await
-//     }
-//   }
+      using(sumSizes) curve ("ReactiveX") in { size =>
+        import rx.lang.scala.ImplicitFunctionConversions._
+        import rx.lang.scala.JavaConversions._
 
-//   // performance of "MergezipMap" config(
-//   //   exec.minWarmupRuns -> 50,
-//   //   exec.maxWarmupRuns -> 100,
-//   //   exec.benchRuns -> 30,
-//   //   exec.independentSamples -> 1
-//   // ) in {
+        var j = 0
+        while (j < size) {
+          val size = 1024
 
-//   //   // using(sumSizes) curve("AsyncJoins") in { size =>
-//   //   //   val s1 = Subject[Int]
-//   //   //   val s2 = Subject[Int]
-//   //   //   val s3 = Subject[Int]
+          val s1 = Subject[Int]
+          val s2 = Subject[Int]
+          val s3 = Subject[Int]
+          val s4 = Subject[Int]
+          val s5 = Subject[Int]
+          val s6 = Subject[Int]
 
-//   //   //   val o1 = s1.observeOn(newThreadScheduler).p
-//   //   //   val o2 = s2.observeOn(newThreadScheduler).p
-//   //   //   val o3 = s2.observeOn(newThreadScheduler).p
+          val latch = new CountDownLatch(1)
+          val counter = new AtomicInteger(0)
 
-//   //   //   val obs = join {
-//   //   //     case o1(x) && o2(y) => Next(x + y)
-//   //   //     case o1(x) && o3(y) => Next(x + y)
-//   //   //     case o1.done && o2.done => Done
-//   //   //   }
-//   //   //   var i = 0
-//   //   //   while (i < size) {
-//   //   //     s1.onNext(i)
-//   //   //     s2.onNext(i)
-//   //   //     s3.onNext(i)
-//   //   //     i += 1
-//   //   //   }
-//   //   // }
+          val o1 = s1.observeOn(newThreadScheduler)
+          val o2 = s2.observeOn(newThreadScheduler)
+          val o3 = s3.observeOn(newThreadScheduler)
+          val o4 = s4.observeOn(newThreadScheduler)
+          val o5 = s5.observeOn(newThreadScheduler)
+          val o6 = s6.observeOn(newThreadScheduler)
 
-//   //   // using(sumSizes) curve("RxJoins") in { size =>
-//   //   //   import rx.subjects._
-//   //   //   import rx.lang.scala.ImplicitFunctionConversions._
+          val p1 = RxJoinObservable.from(o1).and(o2).and(o3).then((x: Int, y: Int, z: Int) => {
+            counter.incrementAndGet()
+            if (counter.get == (size * 2)) { latch.countDown }
+          })
 
-//   //   //   val s1 = PublishSubject.create[Int]()
-//   //   //   val s2 = PublishSubject.create[Int]()
-//   //   //   val s3 = PublishSubject.create[Int]()
+          val p2 = RxJoinObservable.from(o4).and(o5).and(o6).then((x: Int, y: Int, z: Int) => {
+            counter.incrementAndGet()
+            if (counter.get == (size * 2)) { latch.countDown }
+          })
 
-//   //   //   val first = RxJoinObservable.from(s1.observeOn(rx.schedulers.Schedulers.newThread())).and(s2.observeOn(rx.schedulers.Schedulers.newThread())).then((x: Int, y: Int) => (x + y))
-//   //   //   val second = RxJoinObservable.from(s1.observeOn(rx.schedulers.Schedulers.newThread())).and(s3.observeOn(rx.schedulers.Schedulers.newThread())).then((x: Int, y: Int) => (x + y))
-//   //   //   val result = RxJoinObservable.when(first, second).toObservable
+          val result = RxJoinObservable.when(p1, p2).toObservable
 
-//   //   //   var i = 0
-//   //   //   while (i < size) {
-//   //   //     s1.onNext(i)
-//   //   //     s2.onNext(i)
-//   //   //     s3.onNext(i)
-//   //   //     i += 1
-//   //   //   }
-//   //   // }
-//   // }
-// }
+          result.subscribe((_: Unit) => (), (_: Throwable) => (), () => ())
+
+          val thread1 = sendIndexFromThread(s1, size)
+          val thread2 = sendIndexFromThread(s2, size)
+          val thread3 = sendIndexFromThread(s3, size)
+          val thread4 = sendIndexFromThread(s4, size)
+          val thread5 = sendIndexFromThread(s5, size)
+          val thread6 = sendIndexFromThread(s6, size)
+
+          thread1.start()
+          thread2.start()
+          thread3.start()
+          thread4.start()
+          thread5.start()
+          thread6.start()
+
+          latch.await
+
+          thread1.join()
+          thread2.join()
+          thread3.join()
+          thread4.join()
+          thread5.join()
+          thread6.join()
+          j = j + 1
+        }
+      }
+    }
+}
