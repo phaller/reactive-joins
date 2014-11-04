@@ -94,7 +94,6 @@ trait LockFreeTransform extends Transform {
           case EmptyTree => EmptyTree
           case guardTree =>  q"if (!$guardTree) return _root_.scala.async.internal.imports.nondeterministic.NoMatch"
       }
-      // But before we do that, we need to prepated for the case when we can match
       val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
       val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
         val queue = nextEventsToQueues.get(event).get
@@ -109,7 +108,7 @@ trait LockFreeTransform extends Transform {
         requestMoreStats)
       })
       // Consume the error vars by storing them in a different variable, and setting the errorVar to null
-      // TODO: pattern.events.error -> errors?
+      // TODO: possible variable elimination: pattern.events.error -> errors?
       val retrievedErrorVals = freshNames(pattern.events.errors, "unwrapedError").toList
       val retrieveErrorStatements = retrievedErrorVals.map({ case (event, name) => 
         val errorVar = errorEventsToVars.get(event).get
@@ -121,7 +120,7 @@ trait LockFreeTransform extends Transform {
         val name = doneEventsToVars.get(event).get
         q"$name = null" 
       })
-      // Replace the occurences of Next, and Error event binding variables in the pattern-body
+      // Replace the occurrences of Next, and Error event binding variables in the pattern-body
       val combinedEvents = dequeuedMessageVals ++ retrievedErrorVals
       var symbolsToReplace = combinedEvents.map({ case (event, _) => pattern.bindings.get(event).get }) 
       var ids = combinedEvents.map({ case (_, name) => Ident(name) })
@@ -209,7 +208,7 @@ trait LockFreeTransform extends Transform {
                 $myQueue.add($myMessage)
               } 
             }"""
-          // Putting the store event statements for next event toghether
+          // Putting the store event statements for next event together
           q"""
             val $myMessage = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
             $addToAndClaimQueue
@@ -306,13 +305,13 @@ trait LockTransform extends Transform {
     val nextEventsToQueues = 
       freshNames(events.nexts, "queue")
     // We keep for every Error event a variable to store the throwable it carries.
-    // No larger buffer is needed as an Exeception can be thrown exactly once per source.
+    // No larger buffer is needed as an exception can be thrown exactly once per source.
     // Notice: we do not need to buffer Done events since they do not carry a message,
     // and they happen only once per source. Therefore no additional information needs to 
     // be stored other than their presence (which is already done so in the global state).
     val errorEventsToVars = 
       freshNames(events.errors, "error")
-    // Every observable is subscribered to with a subscriber. It can later be used as a handle
+    // Every observable is subscribed to with a subscriber. It can later be used as a handle
     // to unsubscribe, and request more items. We therefore need to store subscribers.
     val observables = events.groupBy(e => e.source).map(_._1)
     val observablesToSubscribers =
@@ -329,7 +328,7 @@ trait LockTransform extends Transform {
           // the "checkExpression" with a body, and a continuation.
           val checkExpression = generatePatternCheck(patternsToIds.get(myPattern).get, possibleStateVal, myPattern.guardTree)
           // In case of a successful pattern-match, we would like to execute the pattern-body. For this to
-          // succeed we need to replace the occurences of pattern-bound variables in the pattern-body with
+          // succeed we need to replace the occurrences of pattern-bound variables in the pattern-body with
           // the actual message content. For example if the join-pattern looks like this: "case O1(x) => x + 1", 
           // we need to replace the "x" with the message identifier that we received from the O1 source. This 
           // means that we need to dequeue a message from all other Next events which are involved in the successful 
@@ -342,10 +341,10 @@ trait LockTransform extends Transform {
           val dequeuedMessageVals = 
             freshNames(otherEvents.nexts, "dequeuedMessage")
             .toList
-          // Generate the deqeue statements. Further, update the state to reflect the removal of
+          // Generate the dequeue statements. Further, update the state to reflect the removal of
           // the buffered events (set the event bit to 0 in case there are no more buffered messages).
-          // We return a pair because of a problem of the creation of a Block by the quasiquotation if 
-          // we put the statements into a single quasiquote.
+          // We return a pair because of a problem of the creation of a Block by the quasi-quotation if 
+          // we put the statements into a single quasi-quote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
             val requestMoreStats = if (unboundBuffer) EmptyTree else {
@@ -358,10 +357,10 @@ trait LockTransform extends Transform {
                ..$requestMoreStats
               }""")
           })
-          // Retrieve the names of the vars storing the Throwables of possibly involved Error events
+          // Retrieve the names of the vars storing the throwables of possibly involved Error events
           val errorVars = otherEvents.errors
             .map(event => event -> errorEventsToVars.get(event).get)
-          // Replace the occurences of Next, and Error event binding variables in the pattern-body
+          // Replace the occurrences of Next, and Error event binding variables in the pattern-body
           val combinedEvents = dequeuedMessageVals ++ errorVars
           var symbolsToReplace = combinedEvents.map({ case (event, _) => myPattern.bindings.get(event).get }) 
           var ids = combinedEvents.map({ case (_, name) => Ident(name) })
@@ -394,7 +393,7 @@ trait LockTransform extends Transform {
       })
       // In case a message has not lead to a pattern-match we need to store it. We do not need
       // to store Done events as their presence is already stored with the set bit in the state
-      // bitfield.
+      // bit-field.
       val bufferStatement = occuredEvent match {
         case next @ Next(_) => q"${nextEventsToQueues.get(next).get}.enqueue(${nextMessage.get})"
         case error @ Error(_) => q"${errorEventsToVars.get(error).get} = ${nextMessage.get}"
