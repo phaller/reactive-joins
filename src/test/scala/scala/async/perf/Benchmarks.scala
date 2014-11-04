@@ -23,7 +23,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
     }
   })
 
-  val sumSizes = Gen.range("LockFreeJoins")(100, 100, 10)
+  val sumSizes = Gen.range("LockFreeJoins")(10, 10, 10)
 
   performance of "zipMap" config (
     exec.minWarmupRuns -> 50,
@@ -44,6 +44,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
           val s5 = Subject[Int]
           val s6 = Subject[Int]
 
+          val gotAll = new CountDownLatch(internalSize)
           val latch = new CountDownLatch(1)
           val counter = new AtomicInteger(0)
 
@@ -58,16 +59,16 @@ class RxReactBench extends PerformanceTest.OfflineReport {
             case o1(x) && o2(y) && o3(z) => {
               counter.incrementAndGet()
               if (counter.get == (internalSize * 2)) { latch.countDown }
-              Pass
+              Next(())
             }
             case o4(x) && o5(y) && o6(z) => {
               counter.incrementAndGet()
               if (counter.get == (internalSize * 2)) { latch.countDown }
-              Pass
+              Next(())
             }
-          }
+          }.serialize
 
-          obs.subscribe((_: Unit) => (),
+          obs.subscribe((_: Unit) => gotAll.countDown,
             (_: Throwable) => (),
             () => ())
 
@@ -86,6 +87,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
           thread6.start()
 
           latch.await
+          gotAll.await
 
           thread1.join()
           thread2.join()
@@ -112,6 +114,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
           val s5 = Subject[Int]
           val s6 = Subject[Int]
 
+          val gotAll = new CountDownLatch(internalSize)
           val latch = new CountDownLatch(1)
           val counter = new AtomicInteger(0)
 
@@ -134,7 +137,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
           val result = RxJoinObservable.when(p1, p2).toObservable
 
-          result.subscribe((_: Unit) => (), (_: Throwable) => (), () => ())
+          result.subscribe((_: Unit) => gotAll.countDown, (_: Throwable) => (), () => ())
 
           val thread1 = sendIndexFromThread(s1, internalSize)
           val thread2 = sendIndexFromThread(s2, internalSize)
@@ -151,6 +154,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
           thread6.start()
 
           latch.await
+          gotAll.await
 
           thread1.join()
           thread2.join()
