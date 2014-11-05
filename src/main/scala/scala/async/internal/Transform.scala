@@ -159,12 +159,12 @@ trait LockFreeTransform extends Transform {
         }
       """
     }})
-    val eventsToResolveFunctions = events.map(occuredEvent => occuredEvent -> {
-      val methodName = fresh("resolve")
+    val eventsToResolveFunctionNames = freshNames(events, "resolve")
+    val eventsToResolveFunctions = eventsToResolveFunctionNames.map({ case (event, name) =>
       val messageToResolve = fresh("messageToResolve")
       val backoff = fresh("backoff")
       val retry = fresh("retry")
-      val myPatterns = patterns.filter(pattern => pattern.events.contains(occuredEvent)).toList
+      val myPatterns = patterns.filter(pattern => pattern.events.contains(event)).toList
       val callPatternChecks = myPatterns.map(p => { 
         val patternCheck = patternMatchHandler.get(p).get._1 
         q"$patternCheck($messageToResolve)"
@@ -177,18 +177,18 @@ trait LockFreeTransform extends Transform {
         }
         """)
       val patternChecks = util.Random.shuffle(unshuffeledPatternChecks)
-      methodName -> q"""
+      q"""
         @_root_.scala.annotation.tailrec
-        def $methodName[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A], $backoff: _root_.scala.async.internal.imports.nondeterministic.Backoff): Unit = {
+        def $name[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A], $backoff: _root_.scala.async.internal.imports.nondeterministic.Backoff): Unit = {
           var $retry: Boolean = false
           ..$patternChecks
           if ($retry) {
             $backoff.once()
-            $methodName($messageToResolve, $backoff)
+            $name($messageToResolve, $backoff)
           }
         }
       """
-    }).toMap
+    })
     val nextsToClaimQueueFunctionNames = freshNames(events.nexts, "addToAndClaimQueue")
     val nextsToClaimQueueFunctions = nextsToClaimQueueFunctionNames.map({ case (next, name) =>
       val backoff = fresh("backoff") 
@@ -211,7 +211,7 @@ trait LockFreeTransform extends Transform {
     val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
       val backoff = fresh("backoff")
       val eventId = eventsToIds.get(occuredEvent).get
-      val resolveMethod = eventsToResolveFunctions.get(occuredEvent).get._1
+      val resolveMethod = eventsToResolveFunctionNames.get(occuredEvent).get
       val storeEventStatement = occuredEvent match {
         case next: Next =>
           val message = fresh("message")
@@ -260,7 +260,7 @@ trait LockFreeTransform extends Transform {
      ..$doneVarDeclarations
      ..$subscriberVarDeclarations
      ..${patternMatchHandler.map(_._2._2)}
-     ..${eventsToResolveFunctions.map(_._2._2)}
+     ..$eventsToResolveFunctions
      ..$nextsToClaimQueueFunctions
      ..$subscriberDeclarations
      ..$subscriptions
