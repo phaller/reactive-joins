@@ -92,8 +92,8 @@ trait LockFreeTransform extends Transform {
         """
       })
       val patternGuardHandler = pattern.guardTree match {
-          case EmptyTree => EmptyTree
-          case guardTree =>  q"if (!$guardTree) return _root_.scala.async.internal.imports.nondeterministic.NoMatch"
+        case EmptyTree => EmptyTree
+        case guardTree =>  q"if (!$guardTree) return _root_.scala.async.internal.imports.nondeterministic.NoMatch"
       }
       val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
       val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
@@ -131,9 +131,9 @@ trait LockFreeTransform extends Transform {
       val messagesToClaim = queueHeads.map(_._2) ++ errors.map(event => errorEventsToVars.get(event).get) ++ dones.map(event => doneEventsToVars.get(event).get)
       val messagesToUnclaim = messagesToClaim.inits.toSeq.reverse
       val claims = messagesToClaim.zipWithIndex.map({ case (messageToClaim, index) => {
-        val unclaimMessages = messagesToUnclaim(index).map(message => q"$message.unclaim")
+        val unclaimMessages = messagesToUnclaim(index).map(message => q"$message.unclaim()")
         q"""
-        if (!$messageToClaim.tryClaim) {
+        if (!$messageToClaim.tryClaim()) {
           ..$unclaimMessages
           return _root_.scala.async.internal.imports.nondeterministic.Retry
         }"""
