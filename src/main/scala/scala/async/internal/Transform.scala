@@ -109,8 +109,7 @@ trait LockFreeTransform extends Transform {
         requestMoreStats)
       })
       // Consume the error vars by storing them in a different variable, and setting the errorVar to null
-      // TODO: possible variable elimination: pattern.events.error -> errors?
-      val retrievedErrorVals = freshNames(pattern.events.errors, "unwrapedError").toList
+      val retrievedErrorVals = freshNames(errors, "unwrapedError").toList
       val retrieveErrorStatements = retrievedErrorVals.map({ case (event, name) => 
         val errorVar = errorEventsToVars.get(event).get
         (q"val $name = $errorVar.content",
