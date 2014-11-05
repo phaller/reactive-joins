@@ -189,6 +189,24 @@ trait LockFreeTransform extends Transform {
         }
       """
     }).toMap
+    val nextsToClaimQueueFunctionNames = freshNames(events.nexts, "addToAndClaimQueue")
+    val nextsToClaimQueueFunctions = nextsToClaimQueueFunctionNames.map({ case (next, name) =>
+      val backoff = fresh("backoff") 
+      val message = fresh("message")    
+      val queue = nextEventsToQueues.get(next).get
+      val queueLock = queuesToLocks.get(nextEventsToQueues.get(next).get).get
+      val tpe = typeArgumentOf(next.source)
+      q"""
+      @_root_.scala.annotation.tailrec
+      def $name($message: _root_.scala.async.internal.imports.nondeterministic.Message[$tpe], $backoff: _root_.scala.async.internal.imports.nondeterministic.Backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()): Unit = {
+        if (!$queueLock.tryClaim()) {
+          $backoff.once()
+          $name($message, $backoff)
+        } else {
+          $queue.add($message)
+        } 
+      }"""
+    })
     // We create for each event call back a resolve function calling the corresponding pattern-match handler
     val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
       val backoff = fresh("backoff")
@@ -196,38 +214,25 @@ trait LockFreeTransform extends Transform {
       val resolveMethod = eventsToResolveFunctions.get(occuredEvent).get._1
       val storeEventStatement = occuredEvent match {
         case next: Next =>
-          val myMessage = fresh("message")
-          val myBackoff = fresh("backoff")     
-          val myQueue = nextEventsToQueues.get(next).get
-          val myQueueLock = queuesToLocks.get(nextEventsToQueues.get(next).get).get
-          val addToAndClaimQueue = q"""
-            @_root_.scala.annotation.tailrec
-            def addToAndClaimQueue(): Unit = {
-              val $myBackoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
-              if (!$myQueueLock.tryClaim()) {
-                $myBackoff.once()
-                addToAndClaimQueue()
-              } else {
-                $myQueue.add($myMessage)
-              } 
-            }"""
+          val message = fresh("message")
+          val addToAndClaimQueue = nextsToClaimQueueFunctionNames.get(next).get
+          val queueLock = queuesToLocks.get(nextEventsToQueues.get(next).get).get     
           // Putting the store event statements for next event together
           q"""
-            val $myMessage = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
-            $addToAndClaimQueue
-            addToAndClaimQueue()
-            $resolveMethod($myMessage, $backoff)
-            $myQueueLock.unclaim()
+            val $message = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
+            $addToAndClaimQueue($message)
+            $resolveMethod($message, $backoff)
+            $queueLock.unclaim()
           """
         case error: Error =>
-          val myErrorVar = errorEventsToVars.get(error).get
-          q"""$myErrorVar = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
-          $resolveMethod($myErrorVar, $backoff)"""
+          val errorVar = errorEventsToVars.get(error).get
+          q"""$errorVar = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
+          $resolveMethod($errorVar, $backoff)"""
         case done: Done =>
-          val myDoneVar = doneEventsToVars.get(done).get
+          val doneVar = doneEventsToVars.get(done).get
           q"""
-          $myDoneVar = _root_.scala.async.internal.imports.nondeterministic.Message((), $eventId)
-          $resolveMethod($myDoneVar, $backoff)"""
+          $doneVar = _root_.scala.async.internal.imports.nondeterministic.Message((), $eventId)
+          $resolveMethod($doneVar, $backoff)"""
         case _ => 
           c.error(c.enclosingPosition, s"Filters on next events are not yet supported.")
           EmptyTree
@@ -256,6 +261,7 @@ trait LockFreeTransform extends Transform {
      ..$subscriberVarDeclarations
      ..${patternMatchHandler.map(_._2._2)}
      ..${eventsToResolveFunctions.map(_._2._2)}
+     ..$nextsToClaimQueueFunctions
      ..$subscriberDeclarations
      ..$subscriptions
     """

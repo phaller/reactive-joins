@@ -23,7 +23,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
     }
   })
 
-  val sumSizes = Gen.range("LockFreeJoins")(10, 10, 10)
+  val sumSizes = Gen.range("LockFreeJoins")(100, 100, 10)
 
   performance of "zipMap" config (
     exec.minWarmupRuns -> 50,
