@@ -46,7 +46,8 @@ trait LockFreeTransform extends Transform {
       q"@volatile var $varName: _root_.scala.async.internal.imports.nondeterministic.Message[Unit] = null"
     })
     // Every pattern has its own handler function which can be called by any event-handler involved in a pattern
-    val patternMatchHandler = freshNames(patterns.toList, "checkPattern").map({ case (pattern, name) => pattern -> {
+    val patternMatchHandlerNames = freshNames(patterns.toList, "checkPattern")
+    val patternMatchHandler = patternMatchHandlerNames.map({ case (pattern, name) => pattern -> {
       val resolveMessage = fresh("resolveMessage")
       val errors = pattern.events.errors.toList
       val dones = pattern.events.dones.toList
@@ -148,15 +149,16 @@ trait LockFreeTransform extends Transform {
       """
       // The full checking of a pattern involves finding error, done, and next messages to claim,
       // trying to claim them, and if successful: execute pattern matching!
-      name -> q"""def $name[A]($resolveMessage: _root_.scala.async.internal.imports.nondeterministic.Message[A]): _root_.scala.async.internal.imports.nondeterministic.MatchResult = {
-          ..$errorHandler
-          ..$doneHandler
-          ..$headVars
-          ..$nextHandler
-          $patternGuardHandler
-          ..$claims
-          ..$dequeueAndExecute
-        }
+      q"""
+      def $name[A]($resolveMessage: _root_.scala.async.internal.imports.nondeterministic.Message[A]): _root_.scala.async.internal.imports.nondeterministic.MatchResult = {
+        ..$errorHandler
+        ..$doneHandler
+        ..$headVars
+        ..$nextHandler
+        $patternGuardHandler
+        ..$claims
+        ..$dequeueAndExecute
+      }
       """
     }})
     val eventsToResolveFunctionNames = freshNames(events, "resolve")
@@ -166,7 +168,7 @@ trait LockFreeTransform extends Transform {
       val retry = fresh("retry")
       val myPatterns = patterns.filter(pattern => pattern.events.contains(event)).toList
       val callPatternChecks = myPatterns.map(p => { 
-        val patternCheck = patternMatchHandler.get(p).get._1 
+        val patternCheck = patternMatchHandlerNames.get(p).get
         q"$patternCheck($messageToResolve)"
       })
       val unshuffeledPatternChecks = callPatternChecks.map(call => q"""
@@ -259,7 +261,7 @@ trait LockFreeTransform extends Transform {
      ..$errorVarDeclarations
      ..$doneVarDeclarations
      ..$subscriberVarDeclarations
-     ..${patternMatchHandler.map(_._2._2)}
+     ..${patternMatchHandler.map(_._2)}
      ..$eventsToResolveFunctions
      ..$nextsToClaimQueueFunctions
      ..$subscriberDeclarations
