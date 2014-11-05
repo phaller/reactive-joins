@@ -174,7 +174,7 @@ trait LockFreeTransform extends Transform {
         $call match {
           case _root_.scala.async.internal.imports.nondeterministic.Resolved => return
           case _root_.scala.async.internal.imports.nondeterministic.Retry => { $retry = true }
-          case _ => 
+          case _root_.scala.async.internal.imports.nondeterministic.NoMatch => 
         }
         """)
       val patternChecks = util.Random.shuffle(unshuffeledPatternChecks)
