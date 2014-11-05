@@ -180,7 +180,7 @@ trait LockFreeTransform extends Transform {
       val patternChecks = util.Random.shuffle(unshuffeledPatternChecks)
       q"""
         @_root_.scala.annotation.tailrec
-        def $name[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A], $backoff: _root_.scala.async.internal.imports.nondeterministic.Backoff): Unit = {
+        def $name[A]($messageToResolve: _root_.scala.async.internal.imports.nondeterministic.Message[A], $backoff: _root_.scala.async.internal.imports.nondeterministic.Backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()): Unit = {
           var $retry: Boolean = false
           ..$patternChecks
           if ($retry) {
@@ -210,7 +210,6 @@ trait LockFreeTransform extends Transform {
     })
     // We create for each event call back a resolve function calling the corresponding pattern-match handler
     val eventCallbacks = events.toList.map(occuredEvent => occuredEvent -> ((nextMessage: Option[TermName]) => {
-      val backoff = fresh("backoff")
       val eventId = eventsToIds.get(occuredEvent).get
       val resolveMethod = eventsToResolveFunctionNames.get(occuredEvent).get
       val storeEventStatement = occuredEvent match {
@@ -222,18 +221,18 @@ trait LockFreeTransform extends Transform {
           q"""
             val $message = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
             $addToAndClaimQueue($message)
-            $resolveMethod($message, $backoff)
+            $resolveMethod($message)
             $queueLock.unclaim()
           """
         case error: Error =>
           val errorVar = errorEventsToVars.get(error).get
           q"""$errorVar = _root_.scala.async.internal.imports.nondeterministic.Message(${nextMessage.get}, $eventId)
-          $resolveMethod($errorVar, $backoff)"""
+          $resolveMethod($errorVar)"""
         case done: Done =>
           val doneVar = doneEventsToVars.get(done).get
           q"""
           $doneVar = _root_.scala.async.internal.imports.nondeterministic.Message((), $eventId)
-          $resolveMethod($doneVar, $backoff)"""
+          $resolveMethod($doneVar)"""
         case _ => 
           c.error(c.enclosingPosition, s"Filters on next events are not yet supported.")
           EmptyTree
@@ -241,7 +240,6 @@ trait LockFreeTransform extends Transform {
       val mySubscriber = observablesToSubscribers.get(occuredEvent.source).get
       q"""
       if (${isUnsubscribed(mySubscriber)}) return
-      val $backoff = _root_.scala.async.internal.imports.nondeterministic.Backoff()
       ..$storeEventStatement
       """
     }))
