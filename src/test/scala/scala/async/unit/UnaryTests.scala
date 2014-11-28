@@ -82,16 +82,29 @@ class UnaryTests {
     assert(obs.toBlocking.first)
   }
 
-//  // TODO: Find a way to test this. Try Mockito again?
-//  // @Test
-//  //  def `unary join throw`() = {
-//  //    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-//  //    val o1 = Observable.items(input: _*).observeOn(newThreadScheduler).p
+  @Test
+  def unaryManipulateResults() = {
+    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+    val o1 = Observable.just(input: _*).observeOn(newThreadScheduler).p
     
-//  //    val obs = join {
-//  //      case o1.done => throw new Exception("")
-//  //    }
+    val obs = join {
+      case o1(x) => Next(x)
+      case o1.done => Done
+    }.map(_ + 1)
     
-//  //  }
+    assert(obs.toBlocking.toList == input.map(_ + 1))
+  }
+
+ // TODO: Find a way to test this. Try Mockito again?
+ // @Test
+ //  def `unary join throw`() = {
+ //    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+ //    val o1 = Observable.items(input: _*).observeOn(newThreadScheduler).p
+    
+ //    val obs = join {
+ //      case o1.done => throw new Exception("")
+ //    }
+    
+ //  }
 
 }

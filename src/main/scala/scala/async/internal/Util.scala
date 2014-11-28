@@ -11,14 +11,14 @@ trait Util {
   // should cause a error.
   def typeArgumentOf(sym: Symbol) = 
     sym.typeSignature.asInstanceOf[TypeRefApi].args.head
-
+ 
   // Generates a TermName with a fresh name in the context
   def fresh(name: String): TermName = TermName(c.freshName(name))
 
  // Generates a fresh name (a unique identifier in a TermName tree) for every element in a traversable
   def freshNames[A](t: Traversable[A], prefix: String): Map[A, TermName] = t.map(e => (e, fresh(prefix))).toMap
 
-  // Replaces every occurence of a symbol in a tree called "block" with the tree stored in
+  // Replaces every occurrence of a symbol in a tree called "block" with the tree stored in
   // the "trees" list. The symbols are mapped onto the trees by means of their list-indices. 
   // Therefore, the two lists "symbols", and "trees" are required to have the same size.
   def replaceSymbolsWithTrees(symbols: List[Symbol], trees: List[c.Tree], block: c.Tree) = {

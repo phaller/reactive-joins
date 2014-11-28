@@ -5,7 +5,7 @@ package scala.async.internal.imports.nondeterministic
 
 import scala.util._
 
-private object Backoff {
+object Backoff {
   val maxCount: Int = 14
   var procs = Runtime.getRuntime.availableProcessors
   def apply() = new Backoff
@@ -15,6 +15,8 @@ final class Backoff {
 
   var seed: Long = Thread.currentThread.getId
   var count = 0
+
+  def getCount() = count
 
   // compute6 from j.u.c.
   private def noop(times: Int = 1): Int = {

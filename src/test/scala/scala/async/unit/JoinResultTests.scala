@@ -21,8 +21,8 @@ class JoinResultTests {
       case o1(x) if received => Next(x)
       case o1.done => Done
     }
-    
-    assert(obs.toBlocking.toList == input.tail)
+    val result = obs.toBlocking.toList 
+    assert(result == input.tail)
   }
 
   @Test
