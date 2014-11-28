@@ -12,7 +12,7 @@ import rx.lang.scala.Observable
 // matching against hard-coded TermNames. For example: Done would
 // be matched against using "Select(_, TermName("Done"))".
 
-// TODO: Check for Superflous imports
+// TODO: Check for Superfluous imports
 // TODO: Object with names for transform
 // TODO: put into an RxJavaJoin object...
 
