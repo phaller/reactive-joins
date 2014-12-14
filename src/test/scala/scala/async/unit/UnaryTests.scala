@@ -42,6 +42,23 @@ class UnaryTests {
     assert(obs.toBlocking.first.isInstanceOf[Throwable])
   }
 
+  // TODO: Get this test to pass!
+  // @Test
+  // def unaryJoinErrorRetrow() = {
+  //   import scala.collection.JavaConversions._
+   
+  //   val size = randomNonZeroEvenInteger(2)
+  //   val o1 = Observable.just(1 to size: _*).map(x => 
+  //       if (x % size == 0) throw new Exception("") else x
+  //   ).observeOn(newThreadScheduler).p
+
+  //   val obs = join {
+  //     case o1.error(e) => throw e; Pass
+  //   }
+
+  //   assert(obs.toBlocking.first.isInstanceOf[Throwable])
+  // }
+
   @Test
   def unaryJoinDone() = {
     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList

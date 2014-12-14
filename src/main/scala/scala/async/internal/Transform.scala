@@ -25,7 +25,7 @@ trait LockFreeTransform extends Transform {
     val observables = events.groupBy(e => e.source).map(_._1)
     val observablesToSubscribers =
       freshNames(observables, "subscribers")
-     val queuesToLocks = 
+    val queuesToLocks = 
       freshNames(nextEventsToQueues.map(_._2), "queueLock")
     // We give every event an id so that we can use a single matching function for every pattern.
     val eventsToIds: Map[Event, Long] = 
@@ -45,6 +45,13 @@ trait LockFreeTransform extends Transform {
     val doneVarDeclarations = doneEventsToVars.map({ case (_, varName) =>
       q"@volatile var $varName: _root_.scala.async.internal.imports.nondeterministic.Message[Unit] = null"
     })
+    // We introduce the atomic counters for back-pressure control
+    val queueToBackPressureVals =
+      freshNames(nextEventsToQueues.map(_._2), "toProcessCount")
+    val backPressureValDeclarations = if (unboundBuffer) List[Tree]() else 
+        queueToBackPressureVals.map({ case (queue, backPressureVar) => {
+          q"val $backPressureVar = new java.util.concurrent.atomic.AtomicInteger($bufferSizeTree)"
+      }})
     // Every pattern has its own handler function which can be called by any event-handler involved in a pattern
     val patternMatchHandlerNames = freshNames(patterns.toList, "checkPattern")
     val patternMatchHandler = patternMatchHandlerNames.map({ case (pattern, name) => pattern -> {
@@ -98,10 +105,12 @@ trait LockFreeTransform extends Transform {
       val dequeuedMessageVals = freshNames(pattern.events.nexts, "dequeuedMessage").toList
       val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
         val queue = nextEventsToQueues.get(event).get
+        val backpressureCounter = queueToBackPressureVals.get(queue).get
         val requestMoreStats = if (unboundBuffer) EmptyTree else {
           val subscriber = observablesToSubscribers.get(event.source).get
           q"""
-          if ($queue.isEmpty) {
+          if ($backpressureCounter.getAndDecrement() == 1) {
+              $backpressureCounter.set($bufferSizeTree)
             ..${requestMore(subscriber, bufferSizeTree)}
           }"""
         }
@@ -258,6 +267,7 @@ trait LockFreeTransform extends Transform {
      ..$errorVarDeclarations
      ..$doneVarDeclarations
      ..$subscriberVarDeclarations
+     ..$backPressureValDeclarations
      ..${patternMatchHandler.map(_._2)}
      ..$eventsToResolveFunctions
      ..$nextsToClaimQueueFunctions
