@@ -50,7 +50,7 @@ trait LockFreeTransform extends Transform {
       freshNames(nextEventsToQueues.map(_._2), "toProcessCount")
     val backPressureValDeclarations = if (unboundBuffer) List[Tree]() else 
         queueToBackPressureVals.map({ case (queue, backPressureVar) => {
-          q"val $backPressureVar = new java.util.concurrent.atomic.AtomicInteger($bufferSizeTree)"
+          q"val $backPressureVar = new java.util.concurrent.atomic.AtomicLong($bufferSizeTree)"
       }})
     // Every pattern has its own handler function which can be called by any event-handler involved in a pattern
     val patternMatchHandlerNames = freshNames(patterns.toList, "checkPattern")
@@ -330,6 +330,13 @@ trait LockTransform extends Transform {
     // be stored other than their presence (which is already done so in the global state).
     val errorEventsToVars = 
       freshNames(events.errors, "error")
+        // We introduce the atomic counters for back-pressure control
+    val queueToBackPressureVals =
+      freshNames(nextEventsToQueues.map(_._2), "toProcessCount")
+    val backPressureValDeclarations = if (unboundBuffer) List[Tree]() else 
+        queueToBackPressureVals.map({ case (queue, backPressureVar) => {
+          q"val $backPressureVar = new java.util.concurrent.atomic.AtomicLong($bufferSizeTree)"
+    }})
     // Every observable is subscribed to with a subscriber. It can later be used as a handle
     // to unsubscribe, and request more items. We therefore need to store subscribers.
     val observables = events.groupBy(e => e.source).map(_._1)
@@ -366,15 +373,22 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasi-quote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val requestMoreStats = if (unboundBuffer) EmptyTree else {
+            val requestMoreStat = if (unboundBuffer) EmptyTree else {
+              val backpressureCounter = queueToBackPressureVals.get(queue).get
               val subscriber = observablesToSubscribers.get(event.source).get
-              requestMore(subscriber, bufferSizeTree)
+              q"""
+              if ($backpressureCounter.getAndDecrement() == 1) {
+                  $backpressureCounter.set($bufferSizeTree)
+                  ${requestMore(subscriber, bufferSizeTree)}
+              }
+              """
             }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
-               ..$requestMoreStats
-              }""")
+              }
+              $requestMoreStat
+              """)
           })
           // Retrieve the names of the vars storing the throwables of possibly involved Error events
           val errorVars = otherEvents.errors
@@ -453,6 +467,7 @@ trait LockTransform extends Transform {
       val ${names.stateLockVal} = new _root_.java.util.concurrent.locks.ReentrantLock()
       var ${names.stateVar} = 0L
       ..$queueDeclarations
+      ..$backPressureValDeclarations
       ..$errorVarDeclarations
       ..$subscriberVarDeclarations
       ..$subscriberDeclarations
