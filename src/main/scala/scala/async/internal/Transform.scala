@@ -292,7 +292,7 @@ trait LockTransform extends Transform {
     val stateLockVal = fresh("stateLock")
   }
 
-  def generatePatternCheck(patternId: Long, state: TermName, patternGuard: Tree) = (body: c.Tree, continuation: c.Tree) => {
+  def generatePatternCheck(patternId: Long, state: TermName, patternGuard: Tree) = (body: c.Tree, continuation: List[c.Tree]) => {
     val checkPatternTree = q"(~$state & $patternId) == 0"
     val matchExpression = patternGuard match {
       case EmptyTree => checkPatternTree
@@ -373,21 +373,10 @@ trait LockTransform extends Transform {
           // we put the statements into a single quasi-quote.
           val dequeueStatements = dequeuedMessageVals.map({ case (event, name) =>
             val queue = nextEventsToQueues.get(event).get
-            val requestMoreStat = if (unboundBuffer) EmptyTree else {
-              val backpressureCounter = queueToBackPressureVals.get(queue).get
-              val subscriber = observablesToSubscribers.get(event.source).get
-              q"""
-              if ($backpressureCounter.getAndDecrement() == 1) {
-                  $backpressureCounter.set($bufferSizeTree)
-                  ${requestMore(subscriber, bufferSizeTree)}
-              }
-              """
-            }
             (q"val $name = $queue.dequeue()",
              q"""if ($queue.isEmpty) {
                ${names.stateVar} = ${names.stateVar} & ~${eventsToIds.get(event).get}
               }
-              $requestMoreStat
               """)
           })
           // Retrieve the names of the vars storing the throwables of possibly involved Error events
@@ -405,23 +394,23 @@ trait LockTransform extends Transform {
           val rawPatternBody = replaceSymbolsWithTrees(symbolsToReplace, ids, myPattern.bodyTree)
           // Decide what to do (Next, Done, or Pass), by inspection of the return expression of the pattern-body
           val patternBody = generateReturnExpression(parsePatternBody(rawPatternBody), names.outSubscriber, afterDone = Some(unsubscribeAllBlock))
-          val requestMoreFromOccured = occuredEvent match {
-            case event @ Next(source) if !unboundBuffer => 
-              val occuredQueue = nextEventsToQueues.get(event).get
-              val occurredSubscriber = observablesToSubscribers.get(source).get
-              val requestStatement = requestMore(occurredSubscriber, bufferSizeTree)
+          // Back-pressure control keeps account on how many events from each source have been processed, and orders more if necessary
+          val requestMoreStats = if (unboundBuffer) List[Tree]() else myPattern.events.nexts.toList.map(event => {
+              val queue = nextEventsToQueues.get(event).get
+              val backpressureCounter = queueToBackPressureVals.get(queue).get
+              val subscriber = observablesToSubscribers.get(event.source).get
               q"""
-              if ($occuredQueue.isEmpty) {
-                $requestStatement
+              if ($backpressureCounter.getAndDecrement() == 1) {
+                  $backpressureCounter.set($bufferSizeTree)
+                  ${requestMore(subscriber, bufferSizeTree)}
               }
               """
-            case _ => EmptyTree
-          }
+            })
           checkExpression(
            q"""..${dequeueStatements.map({ case (stats, _) => stats })}
                ..${dequeueStatements.map({ case (_, stats) => stats })}
                ..$patternBody""", 
-            requestMoreFromOccured
+            requestMoreStats
           )
       })
       // In case a message has not lead to a pattern-match we need to store it. We do not need
