@@ -7,7 +7,7 @@ val rxPatternPrefix = "p"
 def repeat(n: Int, sfn: Int=>String) = ((for (i <- (1 to n)) yield sfn(i)) mkString "\n") ++ "\n"
 
 def subjects(n: Int) = repeat(n, (i: Int) => s"val $subjectPrefix$i = Subject[Int]")
-def joinObservables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(newThreadScheduler).p")
+def joinObservables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(schedulerToUse).p")
 def threadDefinitions(n: Int) = repeat(n, (i: Int) => s"val $threadPrefix$i = sendIndexFromThread($subjectPrefix$i, internalSize)")
 def threadStarts(n: Int) = repeat(n, (i: Int) => s"$threadPrefix$i.start()")
 def threadJoins(n: Int) = repeat(n, (i: Int) => s"$threadPrefix$i.join()")
@@ -20,7 +20,7 @@ def generateCaseUs(r: Range) = {
     (body: String) => s"case $pattern => { $body }"
 }
 
-def observables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(newThreadScheduler)")
+def observables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(schedulerToUse)")
 def patternNames(r: Range) = for (i <- r) yield s"$rxPatternPrefix$i"
 def whenStatement(names: List[String]) = s"val obs = RxJoinObservable.when(${names.mkString(",")}).toObservable"
 
@@ -119,7 +119,7 @@ def NCasesTwoIndependentRxJava(n: Int, base: Boolean = false): String = {
 val fullyIndependentTwoCaseOut = s"""
   performance of "fullyIndependentTwoCase" config (
     exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 1000,
+    exec.maxWarmupRuns -> 100,
     exec.benchRuns -> 1000,
     exec.independentSamples -> 1) in 
   {
@@ -311,6 +311,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
   val iterations = 1
   val internalSize = 1024
 
+  $fullyIndependentTwoCaseOut
   $fullyIndependentTwoCaseBaseOut
 
 }"""
