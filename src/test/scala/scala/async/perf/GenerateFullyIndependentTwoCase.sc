@@ -191,321 +191,82 @@ def NDependentCasesRxJava(n: Int, d: Int, base: Boolean = false): String = {
   generateTestRxJava(numberOfObservables, s"$cazes\n${whenStatement(names.toList)}", base)
 }
 
-val fullyIndependentTwoCaseOut = s"""
-  performance of "fullyIndependentTwoCase" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in 
-  {
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentObservables) curve ("Us") in { independentObservablesNumber =>
-
-        if (independentObservablesNumber == 2) {
-          ${twoCasesIndependentUs(2)}
-        }
-        if (independentObservablesNumber == 4) {
-          ${twoCasesIndependentUs(4)}
-        }
-        if (independentObservablesNumber == 8) {
-          ${twoCasesIndependentUs(8)}
-        }
-        if (independentObservablesNumber == 16) {
-          ${twoCasesIndependentUs(16)}
-        }
-        if (independentObservablesNumber == 32) {
-          ${twoCasesIndependentUs(32)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentObservables) curve ("ReactiveX") in { independentObservablesNumber =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
-
-        if (independentObservablesNumber == 2) {
-          ${twoCasesIndependentRxJava(2)}
-        }
-
-        if (independentObservablesNumber == 4) {
-          ${twoCasesIndependentRxJava(4)}
-        }
-
-        if (independentObservablesNumber == 8) {
-          ${twoCasesIndependentRxJava(8)}
-        }
-
-        if (independentObservablesNumber == 16) {
-          ${twoCasesIndependentRxJava(16)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-  }
+def performanceTest(name: String, body: String, 
+  minWarmupRuns: Int = 64,
+  maxWarmupRuns: Int = 2048,
+  benchRuns: Int = 2048,
+  independentSamples: Int = 8) = s"""
+performance of "$name" config (
+  exec.minWarmupRuns -> $minWarmupRuns,
+  exec.maxWarmupRuns -> $maxWarmupRuns,
+  exec.benchRuns -> $benchRuns,
+  exec.independentSamples -> $independentSamples) in 
+{
+  $body
+}
 """
-val fullyIndependentTwoCaseBaseOut = s"""
-  performance of "fullyIndependentTwoCaseBase" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in 
-  {
 
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentObservables) curve ("Us") in { independentObservablesNumber =>
+def check(number: Int, body: String, usingArgument: String = "XVALUE") = 
+s"""if ($usingArgument == $number) {
+  $body
+}"""
 
-        if (independentObservablesNumber == 2) {
-          ${twoCasesIndependentUsBase(2)}
-        }
-        if (independentObservablesNumber == 4) {
-          ${twoCasesIndependentUsBase(4)}
-        }
-        if (independentObservablesNumber == 8) {
-          ${twoCasesIndependentUsBase(8)}
-        }
-        if (independentObservablesNumber == 16) {
-          ${twoCasesIndependentUsBase(16)}
-        }
-        if (independentObservablesNumber == 32) {
-          ${twoCasesIndependentUsBase(32)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
+def using(name: String, body: String, using: String = "XAXIS", usingArgument: String = "XVALUE") = 
+s"""using($using) curve ("$name") in { $usingArgument =>
+  $body
+}"""
 
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentObservables) curve ("ReactiveX") in { independentObservablesNumber =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
+val ranges = List(2, 4, 8, 16, 32)
+val theirName = "ReactiveX"
+val newLine = "\n"
 
-        if (independentObservablesNumber == 2) {
-          ${twoCasesIndependentRxJavaBase(2)}
-        }
+val rxJavaImports = s"""import rx.lang.scala.ImplicitFunctionConversions._
+import rx.lang.scala.JavaConversions._"""
 
-        if (independentObservablesNumber == 4) {
-          ${twoCasesIndependentRxJavaBase(4)}
-        }
+def generateFullTest(name: String, ourBody: String, theirBody: String) = {
+  val deterministic = using("Non-Deterministic Choice", ourBody)
+  val impl =  "implicit val checkOrder = scala.async.Join.InOrder"
+  val nondeterministic = using("Deterministic Choice", impl ++ newLine ++ ourBody)
+  val them = using("ReactiveX", rxJavaImports ++ newLine ++ theirBody)
+  val body = deterministic ++ newLine ++ nondeterministic ++ newLine ++ them
+  performanceTest(name, body) 
+}
 
-        if (independentObservablesNumber == 8) {
-          ${twoCasesIndependentRxJavaBase(8)}
-        }
+def fullyIndependentTwoCaseOut = {
+  val ourBody = ranges.map(r => check(r, twoCasesIndependentUs(r))) mkString("\n")
+  val theirBody = ranges.take(4).map(r => check(r, twoCasesIndependentRxJava(r))) mkString("\n")
+  generateFullTest("twoCasesIndependend", ourBody, theirBody)
+}
 
-        if (independentObservablesNumber == 16) {
-          ${twoCasesIndependentRxJavaBase(16)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-  }
-"""
-val NCasesTwoIndependentOut = s"""
-   performance of "NCaseTwoIndependent" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in {
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentCases) curve ("Us") in { cases =>
+def fullyIndependentTwoCaseBaseOut = {
+  val ourBody = ranges.map(r => check(r, twoCasesIndependentUsBase(r))) mkString("\n")
+  val theirBody = ranges.take(4).map(r => check(r, twoCasesIndependentRxJavaBase(r))) mkString("\n")
+  generateFullTest("twoCasesIndependendBase", ourBody, theirBody)
+}
 
-        if (cases == 2) {
-          ${NCasesTwoIndependentUs(2)}
-        }
-        if (cases == 4) {
-          ${NCasesTwoIndependentUs(4)}
-        }
-        if (cases == 8) {
-          ${NCasesTwoIndependentUs(8)}
-        }
-        if (cases == 16) {
-          ${NCasesTwoIndependentUs(16)}
-        }
-        if (cases == 32) {
-          ${NCasesTwoIndependentUs(32)}
-        }
+def NCasesTwoIndependentOut = {
+  val ourBody = ranges.map(r => check(r, NCasesTwoIndependentUs(r))) mkString("\n")
+  val theirBody = ranges.map(r => check(r, NCasesTwoIndependentRxJava(r))) mkString("\n")
+  generateFullTest("NCaseTwoIndependent", ourBody, theirBody)
+}
 
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentCases) curve ("ReactiveX") in { cases =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
+def NCasesTwoIndependentBaseOut = {
+  val ourBody = ranges.map(r => check(r, NCasesTwoIndependentUsBase(r))) mkString("\n")
+  val theirBody = ranges.map(r => check(r, NCasesTwoIndependentRxJavaBase(r))) mkString("\n")
+  generateFullTest("NCaseTwoIndependentBase", ourBody, theirBody)
+}
 
-        if (cases == 2) {
-          ${NCasesTwoIndependentRxJava(2)}
-        }
+def NDependentCasesOut = {
+  val ourBody = ranges.map(r => check(r, NDependentCasesUs(32, r))) mkString("\n")
+  val theirBody = ranges.map(r => check(r, NDependentCasesRxJava(32, r))) mkString("\n")
+  generateFullTest("NDependentCases", ourBody, theirBody)
+}
 
-        if (cases == 4) {
-          ${NCasesTwoIndependentRxJava(4)}
-        }
-
-        if (cases == 8) {
-          ${NCasesTwoIndependentRxJava(8)}
-        }
-
-        if (cases == 16) {
-          ${NCasesTwoIndependentRxJava(16)}
-        }
-
-        if (cases == 32) {
-          ${NCasesTwoIndependentRxJava(32)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-  }
-"""
-val NCasesTwoIndependentBaseOut = s"""
-   performance of "NCaseTwoIndependentBase" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in {
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentCases) curve ("Us") in { cases =>
-
-        if (cases == 2) {
-          ${NCasesTwoIndependentUsBase(2)}
-        }
-        if (cases == 4) {
-          ${NCasesTwoIndependentUsBase(4)}
-        }
-        if (cases == 8) {
-          ${NCasesTwoIndependentUsBase(8)}
-        }
-        if (cases == 16) {
-          ${NCasesTwoIndependentUsBase(16)}
-        }
-        if (cases == 32) {
-          ${NCasesTwoIndependentUsBase(32)}
-        }
-
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(independentCases) curve ("ReactiveX") in { cases =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
-
-        if (cases == 2) {
-          ${NCasesTwoIndependentRxJavaBase(2)}
-        }
-
-        if (cases == 4) {
-          ${NCasesTwoIndependentRxJavaBase(4)}
-        }
-
-        if (cases == 8) {
-          ${NCasesTwoIndependentRxJavaBase(8)}
-        }
-
-        if (cases == 16) {
-          ${NCasesTwoIndependentRxJavaBase(16)}
-        }
-
-        if (cases == 32) {
-          ${NCasesTwoIndependentRxJavaBase(32)}
-        }
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-  }
-"""
-val NDependentCasesOut = s"""
-  performance of "NDependentCases" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in {
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(dependendCases) curve ("Us") in { cases =>
-
-        if (cases == 2) {
-          ${NDependentCasesUs(32, 2)}
-        }
-        if (cases == 4) {
-          ${NDependentCasesUs(32, 4)}
-        }
-        if (cases == 8) {
-          ${NDependentCasesUs(32, 8)}
-        }
-        if (cases == 16) {
-          ${NDependentCasesUs(32, 16)}
-        }
-        if (cases == 32) {
-          ${NDependentCasesUs(32, 32)}
-        }
-
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(dependendCases) curve ("ReactiveX") in { cases =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
-
-        if (cases == 2) {
-          ${NDependentCasesRxJava(32, 2)}
-        }
-        if (cases == 4) {
-          ${NDependentCasesRxJava(32, 4)}
-        }
-        if (cases == 8) {
-          ${NDependentCasesRxJava(32, 8)}
-        }
-        if (cases == 16) {
-          ${NDependentCasesRxJava(32, 16)}
-        }
-        if (cases == 32) {
-          ${NDependentCasesRxJava(32, 32)}
-        }
-
-      }
-    }
-      //////////////////////////////////////////////////////////////////////////////////////
-"""
-val NDependentCasesBaseOut = s"""
-  performance of "NDependentCasesBase" config (
-    exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 2048,
-    exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in {
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(dependendCases) curve ("Us") in { cases =>
-
-        if (cases == 2) {
-          ${NDependentCasesUs(32, 2, true)}
-        }
-        if (cases == 4) {
-          ${NDependentCasesUs(32, 4, true)}
-        }
-        if (cases == 8) {
-          ${NDependentCasesUs(32, 8, true)}
-        }
-        if (cases == 16) {
-          ${NDependentCasesUs(32, 16, true)}
-        }
-        if (cases == 32) {
-          ${NDependentCasesUs(32, 32, true)}
-        }
-
-      }
-      //////////////////////////////////////////////////////////////////////////////////////
-      using(dependendCases) curve ("ReactiveX") in { cases =>
-        import rx.lang.scala.ImplicitFunctionConversions._
-        import rx.lang.scala.JavaConversions._
-
-        if (cases == 2) {
-          ${NDependentCasesRxJava(32, 2, true)}
-        }
-        if (cases == 4) {
-          ${NDependentCasesRxJava(32, 4, true)}
-        }
-        if (cases == 8) {
-          ${NDependentCasesRxJava(32, 8, true)}
-        }
-        if (cases == 16) {
-          ${NDependentCasesRxJava(32, 16, true)}
-        }
-        if (cases == 32) {
-          ${NDependentCasesRxJava(32, 32, true)}
-        }
-
-      }
-    }
-      //////////////////////////////////////////////////////////////////////////////////////
-"""
+def NDependentCasesBaseOut = {
+  val ourBody = ranges.map(r => check(r, NDependentCasesUs(32, r, true))) mkString("\n")
+  val theirBody = ranges.map(r => check(r, NDependentCasesRxJava(32, r, true))) mkString("\n")
+  generateFullTest("NDependentCasesBase", ourBody, theirBody)
+}
 
 val out = s"""package scala.async.tests
 
@@ -538,9 +299,7 @@ class RxReactBench extends PerformanceTest.OfflineReport {
     }
   })
 
-  val independentObservables = Gen.enumeration("Observables")(2, 4, 8, 16, 32)
-  val independentCases = Gen.enumeration("Independend Cases")(2, 4, 8, 16, 32)
-  val dependendCases = Gen.enumeration("Interdependend Cases")(2, 4, 8, 16, 32)
+  val XAXIS = Gen.enumeration("XAXIS")(2, 4, 8, 16, 32)
 
   val iterations = 1
   val internalSize = 1024
