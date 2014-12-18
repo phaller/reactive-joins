@@ -351,7 +351,7 @@ val NCasesTwoIndependentOut = s"""
   }
 """
 val NCasesTwoIndependentBaseOut = s"""
-   performance of "NCaseTwoIndependent" config (
+   performance of "NCaseTwoIndependentBase" config (
     exec.minWarmupRuns -> 50,
     exec.maxWarmupRuns -> 2048,
     exec.benchRuns -> 2048,
