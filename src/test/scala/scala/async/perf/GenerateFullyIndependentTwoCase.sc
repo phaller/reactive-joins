@@ -103,7 +103,7 @@ def NCasesTwoIndependentUs(n: Int, base: Boolean = false): String  = {
     if (counter.get == (internalSize * $n)) { latch.countDown }
     Next(())"""
   )).mkString("\n")
-  generateTestUs(n, cases, base)
+  generateTestUs(n * 2, cases, base)
 }
 
 def NCasesTwoIndependentRxJava(n: Int, base: Boolean = false): String = {
@@ -113,15 +113,18 @@ def NCasesTwoIndependentRxJava(n: Int, base: Boolean = false): String = {
     pattern(name, s"""counter.incrementAndGet()
     if (counter.get == (internalSize * $n)) { latch.countDown }""")
   }).mkString("\n")
-  generateTestRxJava(n, s"$cazes\n${whenStatement(names.toList)}", base)
+  generateTestRxJava(n * 2, s"$cazes\n${whenStatement(names.toList)}", base)
 }
+
+def NCasesTwoIndependentUsBase(n: Int) = NCasesTwoIndependentUs(n, true)
+def NCasesTwoIndependentRxJavaBase(n: Int) = NCasesTwoIndependentRxJava(n, true)
 
 val fullyIndependentTwoCaseOut = s"""
   performance of "fullyIndependentTwoCase" config (
     exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 100,
-    exec.benchRuns -> 1000,
-    exec.independentSamples -> 1) in 
+    exec.maxWarmupRuns -> 1024,
+    exec.benchRuns -> 1024,
+    exec.independentSamples -> 5) in 
   {
       //////////////////////////////////////////////////////////////////////////////////////
       using(independentObservables) curve ("Us") in { independentObservablesNumber =>
@@ -171,9 +174,9 @@ val fullyIndependentTwoCaseOut = s"""
 val fullyIndependentTwoCaseBaseOut = s"""
   performance of "fullyIndependentTwoCaseBase" config (
     exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 100,
-    exec.benchRuns -> 1000,
-    exec.independentSamples -> 1) in 
+    exec.maxWarmupRuns -> 1024,
+    exec.benchRuns -> 1024,
+    exec.independentSamples -> 5) in 
   {
 
       //////////////////////////////////////////////////////////////////////////////////////
@@ -221,12 +224,12 @@ val fullyIndependentTwoCaseBaseOut = s"""
       //////////////////////////////////////////////////////////////////////////////////////
   }
 """
-val NCasesTwoIndependent = s"""
+val NCasesTwoIndependentOut = s"""
    performance of "NCaseTwoIndependent" config (
     exec.minWarmupRuns -> 50,
-    exec.maxWarmupRuns -> 100,
-    exec.benchRuns -> 1000,
-    exec.independentSamples -> 1) in {
+    exec.maxWarmupRuns -> 1024,
+    exec.benchRuns -> 1024,
+    exec.independentSamples -> 5) in {
       //////////////////////////////////////////////////////////////////////////////////////
       using(independentObservables) curve ("Us") in { independentObservablesNumber =>
 
@@ -276,6 +279,61 @@ val NCasesTwoIndependent = s"""
   }
 """
 
+val NCasesTwoIndependentBaseOut = s"""
+   performance of "NCaseTwoIndependent" config (
+    exec.minWarmupRuns -> 50,
+    exec.maxWarmupRuns -> 1024,
+    exec.benchRuns -> 1024,
+    exec.independentSamples -> 5) in {
+      //////////////////////////////////////////////////////////////////////////////////////
+      using(independentObservables) curve ("Us") in { independentObservablesNumber =>
+
+        if (independentObservablesNumber == 2) {
+          ${NCasesTwoIndependentUsBase(2)}
+        }
+        if (independentObservablesNumber == 4) {
+          ${NCasesTwoIndependentUsBase(4)}
+        }
+        if (independentObservablesNumber == 8) {
+          ${NCasesTwoIndependentUsBase(8)}
+        }
+        if (independentObservablesNumber == 16) {
+          ${NCasesTwoIndependentUsBase(16)}
+        }
+        if (independentObservablesNumber == 32) {
+          ${NCasesTwoIndependentUsBase(32)}
+        }
+
+      }
+      //////////////////////////////////////////////////////////////////////////////////////
+      using(independentObservables) curve ("ReactiveX") in { independentObservablesNumber =>
+        import rx.lang.scala.ImplicitFunctionConversions._
+        import rx.lang.scala.JavaConversions._
+
+        if (independentObservablesNumber == 2) {
+          ${NCasesTwoIndependentRxJavaBase(2)}
+        }
+
+        if (independentObservablesNumber == 4) {
+          ${NCasesTwoIndependentRxJavaBase(4)}
+        }
+
+        if (independentObservablesNumber == 8) {
+          ${NCasesTwoIndependentRxJavaBase(8)}
+        }
+
+        if (independentObservablesNumber == 16) {
+          ${NCasesTwoIndependentRxJavaBase(16)}
+        }
+
+        if (independentObservablesNumber == 32) {
+          ${NCasesTwoIndependentRxJavaBase(32)}
+        }
+      }
+      //////////////////////////////////////////////////////////////////////////////////////
+  }
+"""
+
 val out = s"""package scala.async.tests
 
 import scala.async.Join._
@@ -313,6 +371,8 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
   $fullyIndependentTwoCaseOut
   $fullyIndependentTwoCaseBaseOut
+  $NCasesTwoIndependentOut
+  $NCasesTwoIndependentBaseOut
 
 }"""
 println(out)
