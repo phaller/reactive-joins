@@ -8,7 +8,9 @@ object Util {
 
   def randomNonZeroEvenInteger(max: Int) = 2 * (random.nextInt(max / 2) + 1)
 
-  def schedulerToUse = NewThreadScheduler()
+  val newThreadScheduler = NewThreadScheduler()
+  // defines which scheduler to use in the benchmarks
+  def schedulerToUse = newThreadScheduler
 
   val maxListSize = 10000
 

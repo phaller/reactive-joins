@@ -10,7 +10,7 @@ implicit def rangeToList(r: Range) = r.toList
 def repeat(n: Int, sfn: Int=>String) = ((for (i <- (1 to n)) yield sfn(i)) mkString "\n") ++ "\n"
 
 def subjects(n: Int) = repeat(n, (i: Int) => s"val $subjectPrefix$i = Subject[Int]")
-def joinObservables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(schedulerToUse).p")
+def joinObservables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.onBackpressureBuffer.observeOn(schedulerToUse).p")
 def threadDefinitions(n: Int) = repeat(n, (i: Int) => s"val $threadPrefix$i = sendIndexFromThread($subjectPrefix$i, internalSize)")
 def threadStarts(n: Int) = repeat(n, (i: Int) => s"$threadPrefix$i.start()")
 def threadJoins(n: Int) = repeat(n, (i: Int) => s"$threadPrefix$i.join()")
@@ -23,7 +23,7 @@ def generateCaseUs(obs: List[String]) = {
     (body: String) => s"case $pattern => { $body }"
 }
 
-def observables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.observeOn(schedulerToUse)")
+def observables(n: Int) = repeat(n, (i: Int) =>  s"val $observablePrefix$i = $subjectPrefix$i.onBackpressureBuffer.observeOn(schedulerToUse)")
 def patternNames(ids: List[Int]) = ids.map(id => s"$rxPatternPrefix$id")
 def whenStatement(names: List[String]) = s"val obs = RxJoinObservable.when(${names.mkString(",")}).toObservable"
 
@@ -193,9 +193,9 @@ def NDependentCasesRxJava(n: Int, d: Int, base: Boolean = false): String = {
 
 def performanceTest(name: String, body: String, 
   minWarmupRuns: Int = 64,
-  maxWarmupRuns: Int = 2048,
-  benchRuns: Int = 2048,
-  independentSamples: Int = 8) = s"""
+  maxWarmupRuns: Int = 128,
+  benchRuns: Int = 32,
+  independentSamples: Int = 1) = s"""
 performance of "$name" config (
   exec.minWarmupRuns -> $minWarmupRuns,
   exec.maxWarmupRuns -> $maxWarmupRuns,
@@ -268,6 +268,9 @@ def NDependentCasesBaseOut = {
   generateFullTest("NDependentCasesBase", ourBody, theirBody)
 }
 
+val internalSize = 1024
+val iterations = 1
+
 val out = s"""package scala.async.tests
 
 import scala.async.Join._
@@ -301,14 +304,14 @@ class RxReactBench extends PerformanceTest.OfflineReport {
 
   val XAXIS = Gen.enumeration("XAXIS")(2, 4, 8, 16, 32)
 
-  val iterations = 1
-  val internalSize = 1024
+  val iterations = $iterations
+  val internalSize = $internalSize
 
   $fullyIndependentTwoCaseOut
-  $fullyIndependentTwoCaseBaseOut
   $NCasesTwoIndependentOut
   $NCasesTwoIndependentBaseOut
   $NDependentCasesOut
   $NDependentCasesBaseOut
+  $fullyIndependentTwoCaseBaseOut
 }"""
 println(out)

@@ -1,233 +1,154 @@
-package scala.async.tests
+// package scala.async.tests
 
-import Util._
-import org.junit.Test
+// import Util._
+// import org.junit.Test
 
-import scala.async.Join._
-import rx.lang.scala.Observable
+// import scala.async.Join._
+// import rx.lang.scala.Observable
 
-// Test the join keyword with multiple source Observables
-class MultaryTests {
+// // Test the join keyword with multiple source Observables
+// class MultaryTests {
 
-  @Test
-  def binaryOrJoin() = {
-    val size = randomNonZeroEvenInteger(maxListSize)
-    val input = List.fill(size)(())
+//   @Test
+//   def binaryOrJoin() = {
+//     val size = randomNonZeroEvenInteger(maxListSize)
+//     val input = List.fill(size)(())
 
-    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
-    val obs = join {
-      case o1(x) => Next(x)
-      case o2(y) => Next(y)
-      case o1.done && o2.done => Done
-    }
+//     val obs = join {
+//       case o1(x) => Next(x)
+//       case o2(y) => Next(y)
+//       case o1.done && o2.done => Done
+//     }
 
-    val result = obs.toBlocking.toList
-    assert(result.size == (size * 2))
-  }
+//     val result = obs.toBlocking.toList
+//     assert(result.size == (size * 2))
+//   }
 
-  @Test
-  def binaryAndJoin() = {
-    val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
-    val fn = (x: Int, y: Int) => x + y
-    val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
+//   @Test
+//   def binaryAndJoin() = {
+//     val input = (1 to randomNonZeroEvenInteger(maxListSize)).toList
+//     val fn = (x: Int, y: Int) => x + y
+//     val expected = input.zip(input).map({ case (x, y) => fn(x, y) })
 
-    val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o1 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o2 = Observable.just(input: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
-    val obs = join {
-      case o1(x) && o2(y) => Next(fn(x, y))
-      case o1.done && o2.done => Done
-    }
+//     val obs = join {
+//       case o1(x) && o2(y) => Next(fn(x, y))
+//       case o1.done && o2.done => Done
+//     }
 
-    val result = obs.toBlocking.toList
-    assert(result == expected)
-  }
+//     val result = obs.toBlocking.toList
+//     assert(result == expected)
+//   }
 
-  @Test
-  def binaryAndJoinLatched() = {
-    val size = randomNonZeroEvenInteger(maxListSize)
+//   @Test
+//   def binaryAndJoinLatched() = {
+//     import java.util.concurrent.TimeUnit
+//     import java.util.concurrent.CountDownLatch
+
+//     val size = randomNonZeroEvenInteger(maxListSize)
     
-    val o1 = Observable.just(1).repeat(size).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.just(2).repeat(size).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o1 = Observable.just(1).repeat(size).subscribeOn(newThreadScheduler).onBackpressureBuffer.observeOn(newThreadScheduler).p
+//     val o2 = Observable.just(2).repeat(size).subscribeOn(newThreadScheduler).onBackpressureBuffer.observeOn(newThreadScheduler).p
       
-    val latch = new java.util.concurrent.CountDownLatch(size)
-    val result = join {
-      case o1(x) && o2(y) => Next(())
-    }
-    result.subscribe((_: Unit) => latch.countDown() , (e: Throwable) => assert(false), () => ())
-    latch.await
-  }
+//     val latch = new CountDownLatch(size)
+//     val obs = join {
+//       case o1(x) && o2(y) => Next(())
+//       case o1.done && o2.done => Done
+//     }
+//     obs.subscribe((_: Unit) => { latch.countDown() }, (e: Throwable) => assert(false), () => ())
 
-  @Test
-  def binaryAndJoinSubjects() = {
-    import java.util.concurrent.CountDownLatch
-    import java.util.concurrent.atomic.AtomicInteger
-    import java.util.concurrent.TimeUnit
+//     try {
+//       assert(latch.await(5, TimeUnit.SECONDS))
+//       // assert(result.size == size)
+//     } catch {
+//       case _: Throwable => assert(false)
+//     }
+//     ()
+//   }
 
-    import rx.lang.scala.Subject
-    import rx.lang.scala.subjects.ReplaySubject
-    import rx.lang.scala.ImplicitFunctionConversions._
-    import rx.lang.scala.JavaConversions._
+//   @Test
+//   def binaryAndOrJoin() = {
+//     val full = randomNonZeroEvenInteger(maxListSize)
+//     val half = full / 2
 
-    var j = 0
-    while (j < 1000) {
-      val size = 1024
+//     val o1 = Observable.just(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o2 = Observable.just(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//     val o3 = Observable.just(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
 
-      val s1 = Subject[Int]
-      val s2 = Subject[Int]
-      val s3 = Subject[Int]
-      val s4 = Subject[Int]
-      val s5 = Subject[Int]
-      val s6 = Subject[Int]
+//     val obs = join {
+//       case o1(x) && o2(y) => Next(true)
+//       case o1(x) && o3(y) => Next(false)
+//       case o1.done && o2.done && o3.done => Done
+//     }
 
-      val latch = new CountDownLatch(1)
-      val counter = new AtomicInteger(0)
+//     val result = obs.toBlocking.toList
+//     assert(result.filter(identity).size == half)
+//     assert(result.filter(x => !x).size == half)
+//   }
 
-      val o1 = s1.observeOn(newThreadScheduler).p
-      val o2 = s2.observeOn(newThreadScheduler).p
-      val o3 = s3.observeOn(newThreadScheduler).p
-      val o4 = s4.observeOn(newThreadScheduler).p
-      val o5 = s5.observeOn(newThreadScheduler).p
-      val o6 = s6.observeOn(newThreadScheduler).p
-    
-      val obs = join {
-        case o1(x) && o2(y) && o3(z) => {
-          counter.incrementAndGet()
-          if (counter.get == (size * 2)) { latch.countDown }
-          Pass
-        }
-        case o4(x) && o5(y) && o6(z) => {
-          counter.incrementAndGet()
-          if (counter.get == (size * 2)) { latch.countDown }
-          Pass
-        }
-      }
-
-      obs.subscribe((_: Unit) => (), 
-        (_: Throwable) => (), 
-        () => ())
-
-      def sendIndexFromThread(s: Subject[Int], repeats: Int) = new Thread(new Runnable {
-        def run() {
-          var i = 0
-          while (i < repeats) {
-            s.onNext(i)
-            i = i + 1
-          } 
-          s.onCompleted()
-        }
-      })
-
-      val thread1 = sendIndexFromThread(s1, size)
-      val thread2 = sendIndexFromThread(s2, size)
-      val thread3 = sendIndexFromThread(s3, size)
-      val thread4 = sendIndexFromThread(s4, size)
-      val thread5 = sendIndexFromThread(s5, size)
-      val thread6 = sendIndexFromThread(s6, size)
-
-      thread1.start()
-      thread2.start()
-      thread3.start()
-      thread4.start()
-      thread5.start()
-      thread6.start()
-
-      try {
-        latch.await(5, TimeUnit.SECONDS)
-      } finally {
-        // println(s"HERHERHEREHRE: counter: ${counter.get} size: ${size *2}")
-        assert(counter.get == (size * 2))
-        thread1.join()
-        thread2.join()
-        thread3.join()
-        thread4.join()
-        thread5.join()
-        thread6.join()
-      }
-      j = j + 1
-    }
-  }
-
-  @Test
-  def binaryAndOrJoin() = {
-    val full = randomNonZeroEvenInteger(maxListSize)
-    val half = full / 2
-
-    val o1 = Observable.just(List.fill(full)(1): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o2 = Observable.just(List.fill(half)(2): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-    val o3 = Observable.just(List.fill(half)(3): _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-
-    val obs = join {
-      case o1(x) && o2(y) => Next(true)
-      case o1(x) && o3(y) => Next(false)
-      case o1.done && o2.done && o3.done => Done
-    }
-
-    val result = obs.toBlocking.toList
-    assert(result.filter(identity).size == half)
-    assert(result.filter(x => !x).size == half)
-  }
-
-  // TODO: Figure out how to test the mixed-pattern semantics
-  // @Test
-  // def doneSemantics {
-  //   val input1 = List.fill(randomNonZeroEvenInteger(maxListSize))(1)
-  //   val input2 = List.fill(randomNonZeroEvenInteger(maxListSize))(2)
+//   // TODO: Figure out how to test the mixed-pattern semantics
+//   // @Test
+//   // def doneSemantics {
+//   //   val input1 = List.fill(randomNonZeroEvenInteger(maxListSize))(1)
+//   //   val input2 = List.fill(randomNonZeroEvenInteger(maxListSize))(2)
    
-  //   val o1 = Observable.just(input1: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
-  //   val o2 = Observable.just(input2: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//   //   val o1 = Observable.just(input1: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
+//   //   val o2 = Observable.just(input2: _*).subscribeOn(newThreadScheduler).observeOn(newThreadScheduler).p
     
-  //   val obs = join {
-  //     case o1(x) => Next(x)
-  //     case o2(x) && o1.done => Next(x)
-  //     case o2.done => Done
-  //   }
+//   //   val obs = join {
+//   //     case o1(x) => Next(x)
+//   //     case o2(x) && o1.done => Next(x)
+//   //     case o2.done => Done
+//   //   }
 
-  //   val result = obs.toBlocking.toList 
-  //   assert(result == (input1 ++ input2))
-  // }
+//   //   val result = obs.toBlocking.toList 
+//   //   assert(result == (input1 ++ input2))
+//   // }
 
-  // 
-  // TODO: Figure out why this does not work anymore after moving to Observable.create?
-  // @Test
-  // def joinRespectsPatternOrder() = {
-  //   import rx.lang.scala.JavaConversions._
-  //   import scala.collection.JavaConversions._    
-  //   import java.util.concurrent.TimeUnit
-  //   // We use some RxJava (*not* RxScala) classes
-  //   import rx.subjects.TestSubject
-  //   import rx.schedulers.Schedulers
+//   // 
+//   // TODO: Figure out why this does not work anymore after moving to Observable.create?
+//   // @Test
+//   // def joinRespectsPatternOrder() = {
+//   //   import rx.lang.scala.JavaConversions._
+//   //   import scala.collection.JavaConversions._    
+//   //   import java.util.concurrent.TimeUnit
+//   //   // We use some RxJava (*not* RxScala) classes
+//   //   import rx.subjects.TestSubject
+//   //   import rx.schedulers.Schedulers
 
-  //   val testScheduler = Schedulers.test() // RxJava TestScheduler
+//   //   val testScheduler = Schedulers.test() // RxJava TestScheduler
 
-  //   val s1 = TestSubject.create[Int](testScheduler) // RxJava TestSubject
-  //   val s2 = TestSubject.create[Int](testScheduler)
-  //   val s3 = TestSubject.create[Int](testScheduler)
+//   //   val s1 = TestSubject.create[Int](testScheduler) // RxJava TestSubject
+//   //   val s2 = TestSubject.create[Int](testScheduler)
+//   //   val s3 = TestSubject.create[Int](testScheduler)
 
-  //   val o1 = toScalaObservable[Int](s1).observeOn(testScheduler).p
-  //   val o2 = toScalaObservable[Int](s2).observeOn(testScheduler).p
-  //   val o3 = toScalaObservable[Int](s3).observeOn(testScheduler).p
+//   //   val o1 = toScalaObservable[Int](s1).observeOn(testScheduler).p
+//   //   val o2 = toScalaObservable[Int](s2).observeOn(testScheduler).p
+//   //   val o3 = toScalaObservable[Int](s3).observeOn(testScheduler).p
 
-  //   val obs = join {
-  //     case o1(x) && o2(y) => Next(1)
-  //     case o1(x) && o3(y) => Next(2)
-  //     case o1.done && o2.done && o3.done => Done
-  //   }
+//   //   val obs = join {
+//   //     case o1(x) && o2(y) => Next(1)
+//   //     case o1(x) && o3(y) => Next(2)
+//   //     case o1.done && o2.done && o3.done => Done
+//   //   }
 
-  //   obs.subscribe(println(_))
+//   //   obs.subscribe(println(_))
 
-  //   s2.onNext(2, 1)
-  //   s3.onNext(3, 1)
-  //   s1.onNext(1, 2)
-  //   s1.onNext(1, 2)
-  //   s1.onCompleted(3)
-  //   s2.onCompleted(3)
-  //   s3.onCompleted(3)
+//   //   s2.onNext(2, 1)
+//   //   s3.onNext(3, 1)
+//   //   s1.onNext(1, 2)
+//   //   s1.onNext(1, 2)
+//   //   s1.onCompleted(3)
+//   //   s2.onCompleted(3)
+//   //   s3.onCompleted(3)
 
-  //   testScheduler.triggerActions()
+//   //   testScheduler.triggerActions()
 
-  //   assert(obs.toBlocking.toList == List(1, 2))
-  // }
-}
+//   //   assert(obs.toBlocking.toList == List(1, 2))
+//   // }
+// }
