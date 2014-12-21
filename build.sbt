@@ -10,9 +10,9 @@ resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repos
 
 libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value % "provided"
 
-//libraryDependencies += "com.netflix.rxjava" % "rxjava-scala" % "0.20.2"
+libraryDependencies += "com.netflix.rxjava" % "rxjava-scala" % "0.20.2"
 
-libraryDependencies += "io.reactivex" % "rxscala_2.11" % "0.23.0"
+//libraryDependencies += "io.reactivex" % "rxscala_2.11" % "0.23.0"
 
 //libraryDependencies += "com.netflix.rxjava" % "rxjava-joins" % "0.20.4"
 
