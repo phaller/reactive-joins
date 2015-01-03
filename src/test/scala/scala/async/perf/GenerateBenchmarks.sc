@@ -8,7 +8,7 @@ val latchName = "latch"
 val ranges = List(2, 4, 8, 16, 32)
 val theirName = "ReactiveX"
 val newLine = "\n"
-val size = 16384
+val size = 32768
 
 val rxJavaImports = s"""import rx.lang.scala.ImplicitFunctionConversions._
 import rx.lang.scala.JavaConversions._"""
@@ -225,11 +225,11 @@ def NCasesTwoIndependentOut = {
 }
 
 def NDependentCasesOut = {
-  val cases = 32
+  val cases = 16
   implicit val xaxis = UsingArguments("NDependentCasesOutRange", "nDependent")
-  val ourBody = ranges.map(r => check(r, generateNDependentCasesUsTest(cases, r, size * cases))) mkString("\n")
-  val theirBody = ranges.map(r => check(r, generateNDependentCasesRxJavaTest(cases, r, size * cases))) mkString("\n")
-  assembleTest("NDependentCases", ourBody, theirBody, false)
+  val ourBody = ranges.take(4).map(r => check(r, generateNDependentCasesUsTest(cases, r, size * cases))) mkString("\n")
+  val theirBody = ranges.take(4).map(r => check(r, generateNDependentCasesRxJavaTest(cases, r, size * cases))) mkString("\n")
+  assembleTest("NDependentCases", ourBody, theirBody)
 }
 
 // $twoCasesNObservablesOut
@@ -276,10 +276,10 @@ object Benchmarks extends PerformanceTest {
 
   val twoCasesNObservablesOutRange = Gen.enumeration("Observables")(2, 4, 8, 16, 32)
   val nCasesTwoIndependentOutRange = Gen.enumeration("Choices")(2, 4, 8, 16, 32)
-  val NDependentCasesOutRange = Gen.enumeration("Choices")(2, 4, 8, 16, 32)
+  val NDependentCasesOutRange = Gen.enumeration("Choices")(2, 4, 8, 16)
 
   $twoCasesNObservablesOut
   $NCasesTwoIndependentOut
-  $NDependentCasesOut
-}"""
+  $NDependentCasesOut}
+"""
 println(out)
