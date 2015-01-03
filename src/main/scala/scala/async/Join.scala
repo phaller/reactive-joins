@@ -58,7 +58,7 @@ object Join {
   }
 
   // Used to configure whether the patterns are checked in the order given, or not.
-  sealed trait CheckOrder
+  sealed trait CheckOrder extends java.io.Serializable
   case object InOrder extends CheckOrder
   case object NoOrder extends CheckOrder
 
