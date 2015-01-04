@@ -3,23 +3,27 @@ require(ggplot2)
 # Drops columns which are not required
 processed_import <- function(path, name) {
   dt <- read.csv(path, stringsAsFactors=FALSE)
-  cropped <- subset(dt, select=-c(complete, units, success, date))
+  cropped <- subset(dt, select=-c(units, success))
   cropped$Approach = name
   return(cropped)
 }
 
-rx <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.ReactiveX.dsv", "Rx")
+rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.ReactiveX.dsv", "RXJ")
 nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.Non-Deterministic Choice.dsv", "NCT")
 dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.Deterministic Choice.dsv", "DCT")
 
-all = rbind(rx, nct, dct)
+rxj <- rxj[1:4, ]
+nct <- nct[1:4, ]
+dct <- dct[1:4, ]
+
+all = rbind(rxj, nct, dct)
 
 # Rename the param.Observables column
 names(all)[names(all)=="param.Observables"] <- "observables"
 all$observables <- factor(all$observables)
 
 # The number of events sent per observable
-sentEvents = 16384
+sentEvents = 32768
 
 # 1. Two Cases Independent: twice number of events sent per observable. Constant.
 patternMatches = 2 * sentEvents
@@ -33,7 +37,10 @@ all$value = valuet
 all$cilo = valuet - 6.361 * sqrt(variancet)
 all$cihi = valuet + 6.361 * sqrt(variancet)
 
-all[5,2:4] = 0
+rxjValues = all[which(all$Approach=='RXJ'), ]$value
+nctValues = all[which(all$Approach=='NCT'), ]$value
+
+1-mean(rxjValues / nctValues)
 
 ggplot(all, aes(x=observables, y=value, fill=Approach)) + 
     geom_bar(position=position_dodge(), stat="identity",
@@ -44,7 +51,7 @@ ggplot(all, aes(x=observables, y=value, fill=Approach)) +
     xlab("Observables") +
     ylab("Throughput (matches/s)") + 
     scale_fill_hue(name="Approach", # Legend label, use darker colors
-                   breaks=c("DCT", "NCT", "Rx"),
+                   breaks=c("DCT", "NCT", "RXJ"),
                    labels=c("Deterministic Choice Transform", 
                     "Non-Deterministic Choice Transform", 
                     "Reactive Extensions")) +
@@ -56,16 +63,15 @@ ggplot(all, aes(x=observables, y=value, fill=Approach)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black")) + 
     scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
-
 ggsave(file="/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/TwoChoiceNObservables.eps")
 
 # 2. N Case Independent: number of events sent per observable * number of cases
 
-rx <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.ReactiveX.dsv", "Rx")
+rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.ReactiveX.dsv", "RXJ")
 nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.Non-Deterministic Choice.dsv", "NCT")
 dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.Deterministic Choice.dsv", "DCT")
 
-all = rbind(rx, nct, dct)
+all = rbind(rxj, nct, dct)
 
 names(all)[names(all)=="param.Choices"] <- "choices"
 
@@ -80,6 +86,11 @@ all$value = valuet
 all$cilo = valuet - 6.361 * sqrt(variancet)
 all$cihi = valuet + 6.361 * sqrt(variancet)
 
+rxjValues = all[which(all$Approach=='RXJ'), ]$value
+nctValues = all[which(all$Approach=='NCT'), ]$value
+
+1-mean(rxjValues / nctValues)
+
 ggplot(all, aes(x=choices, y=value, fill=Approach)) + 
     geom_bar(position=position_dodge(), stat="identity",
             colour="black") +
@@ -89,7 +100,7 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     xlab("Choices") +
     ylab("Throughput (matches/s)") + 
     scale_fill_hue(name="Approach", # Legend label, use darker colors
-                   breaks=c("DCT", "NCT", "Rx"),
+                   breaks=c("DCT", "NCT", "RXJ"),
                    labels=c("Deterministic Choice Transform", 
                     "Non-Deterministic Choice Transform", 
                     "Reactive Extensions")) +
@@ -101,18 +112,18 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black" )) +
     scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
-
 ggsave("/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/NChoiceTwoObservables.eps")
 
-# 3. 32 Case N Dependent: 32 * number of events sent per observable
-rx <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.ReactiveX.dsv", "Rx")
+# 3. 16 Case N Dependent: 16 * number of events sent per observable
+rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.ReactiveX.dsv", "RXJ")
 nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.Non-Deterministic Choice.dsv", "NCT")
+dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.Deterministic Choice.dsv", "DCT")
 
-all = rbind(rx, nct)
+all = rbind(rxj, nct, dct)
 
 names(all)[names(all)=="param.Choices"] <- "choices"
 
-patternMatches = rep(32 * sentEvents, length(all$choices))
+patternMatches = rep(16 * sentEvents, length(all$choices))
 
 all$choices <- factor(all$choices)
 valuet = patternMatches / (all$value / 1000)
@@ -124,6 +135,11 @@ all$value = valuet
 all$cilo = valuet - 6.361 * sqrt(variancet)
 all$cihi = valuet + 6.361 * sqrt(variancet)
 
+rxjValues = all[which(all$Approach=='RXJ'), ]$value
+nctValues = all[which(all$Approach=='NCT'), ]$value
+
+1-mean(rxjValues / nctValues)
+
 ggplot(all, aes(x=choices, y=value, fill=Approach)) + 
     geom_bar(position=position_dodge(), stat="identity",
             colour="black") +
@@ -133,7 +149,7 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     xlab("Choices") +
     ylab("Throughput (matches/s)") + 
     scale_fill_hue(name="Approach", # Legend label, use darker colors
-                   breaks=c("DCT", "NCT", "Rx"),
+                   breaks=c("DCT", "NCT", "RXJ"),
                    labels=c("Deterministic Choice Transform", 
                     "Non-Deterministic Choice Transform", 
                     "Reactive Extensions")) +
@@ -144,6 +160,5 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     theme(axis.title.x=element_text(face="bold", vjust=0)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black" )) + 
-    scale_fill_manual(values=c("#9999CC", "#66CC99"))
-
-    ggsave("/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/32ChoiceNInterdependent.eps")
+    scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
+ggsave("/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/32ChoiceNInterdependent.eps")
