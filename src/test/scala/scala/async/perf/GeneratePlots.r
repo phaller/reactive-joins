@@ -1,5 +1,11 @@
 require(ggplot2)
 
+## README
+# Change the following two paths to the input path of where ScalaMeter stored the *dsv result files...
+inputPath <- "~/Dropbox/TUD/Thesis/code/join/tmp/"
+# ... and where you would like the script to output the graphs:
+outputPath <- "/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/"
+
 # Drops columns which are not required
 processed_import <- function(path, name) {
   dt <- read.csv(path, stringsAsFactors=FALSE)
@@ -8,9 +14,9 @@ processed_import <- function(path, name) {
   return(cropped)
 }
 
-rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.ReactiveX.dsv", "RXJ")
-nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.Non-Deterministic Choice.dsv", "NCT")
-dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/twoCasesIndependend.Deterministic Choice.dsv", "DCT")
+rxj <- processed_import(paste0(inputPath, "twoCasesIndependend.ReactiveX.dsv"), "RXJ")
+nct <- processed_import(paste0(inputPath, "twoCasesIndependend.Non-Deterministic Choice.dsv"), "NCT")
+dct <- processed_import(paste0(inputPath, "twoCasesIndependend.Deterministic Choice.dsv"), "DCT")
 
 rxj <- rxj[1:4, ]
 nct <- nct[1:4, ]
@@ -63,13 +69,13 @@ ggplot(all, aes(x=observables, y=value, fill=Approach)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black")) + 
     scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
-ggsave(file="/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/TwoChoiceNObservables.eps")
+ggsave(file=paste0(outputPath, "TwoChoiceNObservables.eps"))
 
 # 2. N Case Independent: number of events sent per observable * number of cases
 
-rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.ReactiveX.dsv", "RXJ")
-nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.Non-Deterministic Choice.dsv", "NCT")
-dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NCaseTwoIndependent.Deterministic Choice.dsv", "DCT")
+rxj <- processed_import(paste0(inputPath, "NCaseTwoIndependent.ReactiveX.dsv"), "RXJ")
+nct <- processed_import(paste0(inputPath, "NCaseTwoIndependent.Non-Deterministic Choice.dsv"), "NCT")
+dct <- processed_import(paste0(inputPath, "NCaseTwoIndependent.Deterministic Choice.dsv"), "DCT")
 
 all = rbind(rxj, nct, dct)
 
@@ -112,12 +118,12 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black" )) +
     scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
-ggsave("/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/NChoiceTwoObservables.eps")
+ggsave(paste0(outputPath, "NChoiceTwoObservables.eps"))
 
 # 3. 16 Case N Dependent: 16 * number of events sent per observable
-rxj <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.ReactiveX.dsv", "RXJ")
-nct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.Non-Deterministic Choice.dsv", "NCT")
-dct <- processed_import("~/Dropbox/TUD/Thesis/code/join/tmp/NDependentCases.Deterministic Choice.dsv", "DCT")
+rxj <- processed_import(paste0(inputPath, "NDependentCases.ReactiveX.dsv"), "RXJ")
+nct <- processed_import(paste0(inputPath, "NDependentCases.Non-Deterministic Choice.dsv"), "NCT")
+dct <- processed_import(paste0(inputPath, "NDependentCases.Deterministic Choice.dsv"), "DCT")
 
 all = rbind(rxj, nct, dct)
 
@@ -161,4 +167,4 @@ ggplot(all, aes(x=choices, y=value, fill=Approach)) +
     theme(legend.position="bottom",  panel.grid.major.x = element_blank() ,
            panel.grid.major.y = element_line( size=.1, color="black" )) + 
     scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
-ggsave("/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/32ChoiceNInterdependent.eps")
+ggsave(paste0(outputPath, "32ChoiceNInterdependent.eps"))
