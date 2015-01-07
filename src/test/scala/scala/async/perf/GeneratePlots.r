@@ -1,10 +1,14 @@
 require(ggplot2)
 
 ## README
+
 # Change the following two paths to the input path of where ScalaMeter stored the *dsv result files...
 inputPath <- "~/Dropbox/TUD/Thesis/code/join/tmp/"
 # ... and where you would like the script to output the graphs:
 outputPath <- "/Users/ayedo/Dropbox/TUD/Thesis/document/img/evaluation/"
+# To run the script use Rscript GeneratePlot.r, or use RStudio. When using RScript you might want to fix the
+# size of the plots by changing the ggsave command options to a fixed size.
+
 
 # Drops columns which are not required
 processed_import <- function(path, name) {
