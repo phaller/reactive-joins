@@ -40,8 +40,8 @@ object Benchmark2 extends PerformanceTest {
   val nCasesTwoIndependentOutRange = Gen.enumeration("Choices")(2, 4, 8, 16, 32)
 
   performance of "NCaseTwoIndependent" config (
-    exec.minWarmupRuns -> 1024,
-    exec.maxWarmupRuns -> 2048,
+    // exec.minWarmupRuns -> 1024,
+    // exec.maxWarmupRuns -> 2048,
     exec.benchRuns -> 2048,
     exec.independentSamples -> 8) in
     {
