@@ -43,7 +43,7 @@ object Benchmark2 extends PerformanceTest {
     // exec.minWarmupRuns -> 1024,
     // exec.maxWarmupRuns -> 2048,
     exec.benchRuns -> 2048,
-    exec.independentSamples -> 8) in
+    exec.independentSamples -> 2) in
     {
       using(nCasesTwoIndependentOutRange) curve ("Non-Deterministic Choice") in { nChoices =>
         if (nChoices == 2) {
