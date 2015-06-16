@@ -22,7 +22,10 @@ case class MyDsvReporter(delimiter: Char) extends Reporter {
     new File(s"$resultdir").mkdir()
 
     def reportCurve(cd: CurveData) {
-      val filename = s"$resultdir$sep${cd.context.scope}.${cd.context.curve}.dsv"
+      // val filename = s"$resultdir$sep${cd.context.scope}.${cd.context.curve}.dsv"
+      val filename = s"${cd.context.scope}.${cd.context.curve}.dsv"
+      println(s"writing curve data to file '$filename'...")
+
       var writer: PrintWriter = null
 
       try {
