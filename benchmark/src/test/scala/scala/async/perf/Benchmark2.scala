@@ -11,6 +11,8 @@ import rx.lang.scala.Subject
 import rx.lang.scala.subjects.ReplaySubject
 import org.scalameter.api._
 
+import org.scalameter.picklers.noPickler._
+
 object Benchmark2 extends PerformanceTest {
 
   lazy val executor = SeparateJvmsExecutor(
@@ -19,7 +21,9 @@ object Benchmark2 extends PerformanceTest {
     new Measurer.Default)
   lazy val reporter = MyDsvReporter(',')
 
-  lazy val persistor = Persistor.None
+  lazy val persistor = SerializationPersistor()
+
+  lazy val measurer = executor.measurer
 
   implicit def scalaFunction8ToRxFunc8[A, B, C, D, E, F, G, H, I](fn: (A, B, C, D, E, F, G, H) => I): Func8[A, B, C, D, E, F, G, H, I] =
     new Func8[A, B, C, D, E, F, G, H, I] {
