@@ -13,7 +13,7 @@ import org.scalameter.api._
 
 import org.scalameter.picklers.noPickler._
 
-object Benchmark2 extends PerformanceTest {
+object Benchmark2 extends Bench[Double] {
 
   lazy val executor = SeparateJvmsExecutor(
     new Executor.Warmer.Default,

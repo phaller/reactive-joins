@@ -9,19 +9,19 @@ import utils.Tree
 
 /** Produces a DSV file with results that can be used by other visualization tools.
  */
-case class MyDsvReporter(delimiter: Char) extends Reporter {
+case class MyDsvReporter(delimiter: Char) extends Reporter[Double] {
 
   val sep = File.separator
 
-  def report(result: CurveData, persistor: Persistor) {
+  def report(result: CurveData[Double], persistor: Persistor) {
   }
 
-  def report(result: Tree[CurveData], persistor: Persistor) = {
+  def report(result: Tree[CurveData[Double]], persistor: Persistor) = {
     val resultdir = currentContext(Key.reports.resultDir)
 
     new File(s"$resultdir").mkdir()
 
-    def reportCurve(cd: CurveData) {
+    def reportCurve(cd: CurveData[Double]) {
       // val filename = s"$resultdir$sep${cd.context.scope}.${cd.context.curve}.dsv"
       val filename = s"${cd.context.scope}.${cd.context.curve}.dsv"
       println(s"writing curve data to file '$filename'...")
@@ -50,12 +50,12 @@ object MyDsvReporter {
     (date) => df.format(date)
   }
 
-  def writeCurveData(cd: CurveData, persistor: Persistor, pw: PrintWriter, delimiter: Char, newline: String = "\n") {
+  def writeCurveData(cd: CurveData[Double], persistor: Persistor, pw: PrintWriter, delimiter: Char, newline: String = "\n") {
     val history = persistor.load(cd.context)
     import pw._
     import pw.{print => p}
 
-    def header(cd: CurveData) {
+    def header(cd: CurveData[Double]) {
       // p("date")
       // p(delimiter)
       for (paramname <- cd.measurements.head.params.axisData.keys) {
@@ -76,7 +76,7 @@ object MyDsvReporter {
       print(newline)
     }
 
-    def output(cd: CurveData, date: Date) {
+    def output(cd: CurveData[Double], date: Date) {
       for (m <- cd.measurements) {
         // p(dateISO(date))
         // p(delimiter)
@@ -105,6 +105,6 @@ object MyDsvReporter {
     val dates = history.dates :+ currentDate
     
     header(cd)
-    for ((c, d) <- curves zip dates) output(c, d)
+    for ((c, d) <- curves zip dates) output(c.asInstanceOf[CurveData[Double]], d)
   }
 }
